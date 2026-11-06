@@ -1,0 +1,23 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: cafe-workforce-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cafe_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cafe_secret_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-cafe_workforce}
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - cafe_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-cafe_admin} -d $${POSTGRES_DB:-cafe_workforce}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  cafe_pgdata:
+

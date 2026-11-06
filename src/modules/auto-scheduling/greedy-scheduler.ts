@@ -1,0 +1,368 @@
+import { intervalsOverlap } from "@/lib/shift-time";
+import type {
+  EngineEmployee,
+  EngineInput,
+  ProposedAssignment,
+  RecommendationResult,
+  SchedulingEngine,
+  UnfilledShiftSlot,
+} from "./scheduling-engine.types";
+
+interface AssignedState {
+  shiftId: string;
+  startAt: Date;
+  endAt: Date;
+  workDate: string;
+  netMinutes: number;
+}
+
+export class GreedySchedulerEngine implements SchedulingEngine {
+  public readonly name = "Greedy-Constraint-Scorer-v1";
+
+  public async solve(input: EngineInput): Promise<RecommendationResult> {
+    const startTime = Date.now();
+    const {
+      weekStart,
+      shifts,
+      employees,
+      availabilities,
+      leaves,
+      policy,
+      existingAssignments = [],
+    } = input;
+
+    // Track state per employee
+    const empAssigned = new Map<string, AssignedState[]>();
+    const empTotalMinutes = new Map<string, number>();
+
+    for (const emp of employees) {
+      empAssigned.set(emp.id, []);
+      empTotalMinutes.set(emp.id, 0);
+    }
+
+    const proposedAssignments: ProposedAssignment[] = [];
+    const pinnedSet = new Set<string>();
+
+    // Register pinned assignments first
+    for (const pin of existingAssignments) {
+      if (!pin.isPinned) continue;
+      const shift = shifts.find((s) => s.id === pin.shiftId);
+      const emp = employees.find((e) => e.id === pin.employeeId);
+      if (!shift || !emp) continue;
+
+      const stateList = empAssigned.get(emp.id) ?? [];
+      stateList.push({
+        shiftId: shift.id,
+        startAt: shift.startAt,
+        endAt: shift.endAt,
+        workDate: shift.workDate,
+        netMinutes: shift.netMinutes,
+      });
+      empAssigned.set(emp.id, stateList);
+      empTotalMinutes.set(
+        emp.id,
+        (empTotalMinutes.get(emp.id) ?? 0) + shift.netMinutes,
+      );
+
+      proposedAssignments.push({
+        shiftId: shift.id,
+        employeeId: emp.id,
+        employeeName: emp.fullName,
+        positionId: pin.positionId,
+        positionName: "Đã ghim",
+        score: 999,
+        explanation: "Phân công được ghim cố định từ trước",
+        isPinned: true,
+      });
+
+      pinnedSet.add(`${shift.id}_${emp.id}`);
+    }
+
+    // Availability fast lookup
+    const availMap = new Map<string, "AVAILABLE" | "PREFERRED" | "UNAVAILABLE">();
+    for (const av of availabilities) {
+      availMap.set(`${av.employeeId}_${av.workDate}_${av.templateId ?? ""}`, av.preference);
+    }
+
+    // Sort shifts:
+    // 1. Higher priority or isPeak first
+    // 2. More specific position requirements first
+    // 3. Chronological workDate & startAt
+    const sortedShifts = [...shifts].sort((a, b) => {
+      if (a.isPeak !== b.isPeak) return a.isPeak ? -1 : 1;
+      if (a.priority !== b.priority) return b.priority - a.priority;
+      const reqDiff = b.requirements.length - a.requirements.length;
+      if (reqDiff !== 0) return reqDiff;
+      return a.startAt.getTime() - b.startAt.getTime();
+    });
+
+    const unfilledShifts: UnfilledShiftSlot[] = [];
+
+    // Process each shift
+    for (const shift of sortedShifts) {
+      // Build slot demands from requirements or total required staff
+      const neededSlots: Array<{ positionId?: string; isRequired: boolean }> = [];
+
+      for (const req of shift.requirements) {
+        for (let i = 0; i < req.minCount; i++) {
+          neededSlots.push({ positionId: req.positionId, isRequired: true });
+        }
+      }
+
+      // If total requiredStaff > sum of requirements, add generic slots
+      while (neededSlots.length < shift.requiredStaff) {
+        neededSlots.push({ isRequired: false });
+      }
+
+      // Fill slots
+      for (const slot of neededSlots) {
+        // Find best candidate
+        const candidatesWithScores: Array<{
+          employee: EngineEmployee;
+          positionId: string;
+          score: number;
+          explanation: string;
+        }> = [];
+
+        const rejectReasons: string[] = [];
+
+        for (const emp of employees) {
+          // Check if already assigned to this shift
+          const currentShifts = empAssigned.get(emp.id) ?? [];
+          if (currentShifts.some((cs) => cs.shiftId === shift.id)) {
+            continue;
+          }
+
+          // HARD CONSTRAINT 1: Skill
+          let matchedPositionId = slot.positionId;
+          if (matchedPositionId) {
+            const hasSkill = emp.skills.some((s) => s.positionId === matchedPositionId);
+            if (!hasSkill && emp.primaryPositionId !== matchedPositionId) {
+              rejectReasons.push(`${emp.fullName}: thiếu kỹ năng vị trí`);
+              continue;
+            }
+          } else {
+            // Pick a skill position they have or primary
+            matchedPositionId = emp.primaryPositionId;
+          }
+
+          // HARD CONSTRAINT 2: Shift Overlap
+          const hasOverlap = currentShifts.some((cs) =>
+            intervalsOverlap(cs.startAt, cs.endAt, shift.startAt, shift.endAt),
+          );
+          if (hasOverlap) {
+            rejectReasons.push(`${emp.fullName}: trùng ca khác trong ngày`);
+            continue;
+          }
+
+          // HARD CONSTRAINT 3: Approved Leave
+          const onLeave = leaves.some(
+            (l) =>
+              l.employeeId === emp.id &&
+              intervalsOverlap(l.startAt, l.endAt, shift.startAt, shift.endAt),
+          );
+          if (onLeave) {
+            rejectReasons.push(`${emp.fullName}: có đơn nghỉ phép`);
+            continue;
+          }
+
+          // HARD CONSTRAINT 4: Availability Registration
+          const pref =
+            availMap.get(`${emp.id}_${shift.workDate}_${shift.templateId ?? ""}`) ??
+            "AVAILABLE";
+          if (pref === "UNAVAILABLE") {
+            rejectReasons.push(`${emp.fullName}: đăng ký bận`);
+            continue;
+          }
+
+          // HARD CONSTRAINT 5: Minimum Rest Period
+          const minRestMs = policy.minRestHours * 3600000;
+          let restViolated = false;
+          for (const cs of currentShifts) {
+            const gap =
+              cs.endAt.getTime() <= shift.startAt.getTime()
+                ? shift.startAt.getTime() - cs.endAt.getTime()
+                : cs.startAt.getTime() - shift.endAt.getTime();
+            if (gap < minRestMs) {
+              restViolated = true;
+              break;
+            }
+          }
+          if (restViolated) {
+            rejectReasons.push(`${emp.fullName}: không đủ ${policy.minRestHours}h nghỉ giữa 2 ca`);
+            continue;
+          }
+
+          // HARD CONSTRAINT 6: Weekly Hours Limit
+          const currentTotalMin = empTotalMinutes.get(emp.id) ?? 0;
+          const maxMinutes =
+            Math.min(emp.maxWeeklyHours, policy.maxWeeklyHours) * 60;
+          if (currentTotalMin + shift.netMinutes > maxMinutes) {
+            rejectReasons.push(`${emp.fullName}: vượt định mức giờ tối đa tuần`);
+            continue;
+          }
+
+          // HARD CONSTRAINT 7: Consecutive Days Limit
+          const assignedDates = new Set(currentShifts.map((cs) => cs.workDate));
+          assignedDates.add(shift.workDate);
+          const sortedDates = [...assignedDates].sort();
+          let maxConsecutive = 0;
+          let currentStreak = 0;
+          let prevDate: Date | null = null;
+
+          for (const dStr of sortedDates) {
+            const currDate = new Date(`${dStr}T00:00:00.000Z`);
+            if (prevDate) {
+              const diffDays = Math.round(
+                (currDate.getTime() - prevDate.getTime()) / 86400000,
+              );
+              if (diffDays === 1) {
+                currentStreak++;
+              } else {
+                currentStreak = 1;
+              }
+            } else {
+              currentStreak = 1;
+            }
+            if (currentStreak > maxConsecutive) {
+              maxConsecutive = currentStreak;
+            }
+            prevDate = currDate;
+          }
+
+          if (maxConsecutive > policy.maxConsecutiveDays) {
+            rejectReasons.push(`${emp.fullName}: vượt quá ${policy.maxConsecutiveDays} ngày làm liên tiếp`);
+            continue;
+          }
+
+          // SOFT CONSTRAINTS: Scoring
+          let score = 100;
+          const explanations: string[] = [];
+
+          // 1. Availability preference
+          if (pref === "PREFERRED") {
+            score += 40;
+            explanations.push("Ưu tiên theo nguyện vọng");
+          }
+
+          // 2. Workload balance (encourage reaching weeklyTargetHours)
+          const targetMin = emp.weeklyTargetHours * 60;
+          const remainingMin = targetMin - currentTotalMin;
+          if (remainingMin > 0) {
+            const balanceBonus = Math.min(50, Math.round(remainingMin / 30) * 5);
+            score += balanceBonus;
+            explanations.push(`Cân bằng giờ (còn thiếu ${Math.round(remainingMin / 60)}h)`);
+          } else {
+            // Already met target: small penalty to distribute hours to others
+            score -= 20;
+          }
+
+          // 3. Peak shift skill preference
+          if (shift.isPeak) {
+            const skill = emp.skills.find((s) => s.positionId === matchedPositionId);
+            if (skill?.proficiency === "ADVANCED") {
+              score += 25;
+              explanations.push("Tay nghề giỏi ca cao điểm");
+            } else if (skill?.proficiency === "INTERMEDIATE") {
+              score += 10;
+            }
+          }
+
+          // 4. Weekend balance
+          const dayOfWeek = new Date(`${shift.workDate}T00:00:00.000Z`).getUTCDay();
+          if (dayOfWeek === 0 || dayOfWeek === 6) {
+            const weekendShifts = currentShifts.filter((cs) => {
+              const dow = new Date(`${cs.workDate}T00:00:00.000Z`).getUTCDay();
+              return dow === 0 || dow === 6;
+            }).length;
+            if (weekendShifts === 0) {
+              score += 15;
+            }
+          }
+
+          candidatesWithScores.push({
+            employee: emp,
+            positionId: matchedPositionId,
+            score,
+            explanation: explanations.join(", ") || "Phù hợp tiêu chuẩn ca",
+          });
+        }
+
+        // Sort candidates by score descending
+        candidatesWithScores.sort((a, b) => b.score - a.score);
+
+        const chosen = candidatesWithScores[0];
+        if (chosen) {
+          // Assign candidate
+          const currentShifts = empAssigned.get(chosen.employee.id) ?? [];
+          currentShifts.push({
+            shiftId: shift.id,
+            startAt: shift.startAt,
+            endAt: shift.endAt,
+            workDate: shift.workDate,
+            netMinutes: shift.netMinutes,
+          });
+          empAssigned.set(chosen.employee.id, currentShifts);
+          empTotalMinutes.set(
+            chosen.employee.id,
+            (empTotalMinutes.get(chosen.employee.id) ?? 0) + shift.netMinutes,
+          );
+
+          proposedAssignments.push({
+            shiftId: shift.id,
+            employeeId: chosen.employee.id,
+            employeeName: chosen.employee.fullName,
+            positionId: chosen.positionId,
+            positionName: "Tự động xếp",
+            score: chosen.score,
+            explanation: chosen.explanation,
+            isPinned: false,
+          });
+        } else {
+          // Unfilled slot
+          unfilledShifts.push({
+            shiftId: shift.id,
+            shiftName: shift.name,
+            workDate: shift.workDate,
+            positionId: slot.positionId,
+            missingCount: 1,
+            reasons: rejectReasons.slice(0, 5),
+          });
+        }
+      }
+    }
+
+    // Compute employee hour summaries and total labor costs
+    let totalLaborCost = BigInt(0);
+    const employeeSummaries = employees.map((emp) => {
+      const assignedMin = empTotalMinutes.get(emp.id) ?? 0;
+      const assignedHours = assignedMin / 60;
+      const hourlyRateBigInt = emp.hourlyRate ?? BigInt(30000);
+      const wage = BigInt(Math.round(assignedHours * Number(hourlyRateBigInt)));
+      totalLaborCost += wage;
+
+      return {
+        employeeId: emp.id,
+        fullName: emp.fullName,
+        targetMinutes: emp.weeklyTargetHours * 60,
+        assignedMinutes: assignedMin,
+        shiftCount: (empAssigned.get(emp.id) ?? []).length,
+        estimatedWageVND: wage.toString(),
+      };
+    });
+
+    const totalSlots = shifts.reduce((sum, s) => sum + s.requiredStaff, 0);
+
+    return {
+      engineName: this.name,
+      weekStart,
+      totalSlots,
+      filledSlots: proposedAssignments.length,
+      proposedAssignments,
+      unfilledShifts,
+      employeeSummaries,
+      estimatedTotalLaborCostVND: totalLaborCost.toString(),
+      executionTimeMs: Date.now() - startTime,
+    };
+  }
+}

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="128" fill="#16a34a"/>
+  <!-- Coffee Cup & Schedule Emblem -->
+  <g transform="translate(96, 96)" fill="none" stroke="#ffffff" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Cup Body -->
+    <path d="M 40 80 L 280 80 C 280 200 240 260 160 260 C 80 260 40 200 40 80 Z" fill="#ffffff" fill-opacity="0.15" />
+    <!-- Cup Handle -->
+    <path d="M 280 110 C 330 110 330 200 280 200" />
+    <!-- Steam Lines -->
+    <path d="M 100 50 Q 110 25 100 0" stroke-width="16" />
+    <path d="M 160 50 Q 170 25 160 0" stroke-width="16" />
+    <path d="M 220 50 Q 230 25 220 0" stroke-width="16" />
+    <!-- Saucer / Base -->
+    <path d="M 20 280 L 300 280" stroke-width="24" />
+    <!-- Clock / Check badge -->
+    <circle cx="240" cy="240" r="60" fill="#15803d" stroke="#ffffff" stroke-width="16" />
+    <path d="M 240 208 L 240 240 L 264 252" stroke="#ffffff" stroke-width="12" />
+  </g>
+</svg>
