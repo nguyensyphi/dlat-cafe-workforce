@@ -627,7 +627,7 @@ async function main() {
           requesterId: namLe.id,
           targetEmployeeId: huyBui.id,
           reason: "Bận việc gia đình buổi sáng, xin đổi sang ca chiều",
-          status: SwapStatus.PENDING_MANAGER,
+          status: SwapStatus.ACCEPTED,
           targetRespondedAt: new Date(`${todayStr}T08:00:00.000+07:00`),
         },
       });

@@ -124,6 +124,7 @@ export function ManagementShell({
               <Link
                 key={item.href}
                 href={item.href}
+                prefetch={false}
                 className={cn(
                   "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                   active
@@ -207,6 +208,7 @@ export function ManagementShell({
             <Link
               key={item.href}
               href={item.href}
+              prefetch={false}
               className={cn(
                 "flex flex-col items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-medium",
                 active ? "text-emerald-700" : "text-slate-500",

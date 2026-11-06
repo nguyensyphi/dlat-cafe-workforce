@@ -35,6 +35,7 @@ export default async function ManagementDashboardPage() {
       sub: `${metrics.inactiveEmployees} nhân sự ngừng hoạt động`,
       icon: Users,
       accent: "text-emerald-600 bg-emerald-50",
+      href: "/employees",
     },
     {
       title: "Đi làm hôm nay",
@@ -42,6 +43,7 @@ export default async function ManagementDashboardPage() {
       sub: `Trên tổng ${metrics.shiftsTodayCount} ca đã công bố hôm nay`,
       icon: UserCheck,
       accent: "text-blue-600 bg-blue-50",
+      href: "/attendance",
     },
     {
       title: "Ca thiếu nhân sự hôm nay",
@@ -55,6 +57,7 @@ export default async function ManagementDashboardPage() {
         metrics.understaffedShiftsToday > 0
           ? "text-amber-600 bg-amber-50"
           : "text-emerald-600 bg-emerald-50",
+      href: "/schedules",
     },
     {
       title: "Chưa chấm công vào ca",
@@ -65,6 +68,7 @@ export default async function ManagementDashboardPage() {
         metrics.missingClockInToday > 0
           ? "text-red-600 bg-red-50"
           : "text-slate-600 bg-slate-100",
+      href: "/attendance",
     },
     {
       title: "Yêu cầu xin nghỉ chờ duyệt",
@@ -72,6 +76,7 @@ export default async function ManagementDashboardPage() {
       sub: "Đơn nghỉ phép đang ở trạng thái Chờ duyệt",
       icon: FileWarning,
       accent: "text-amber-600 bg-amber-50",
+      href: "/requests",
     },
     {
       title: "Yêu cầu đổi ca chờ duyệt",
@@ -79,6 +84,7 @@ export default async function ManagementDashboardPage() {
       sub: "Đơn đổi ca giữa các nhân viên",
       icon: RefreshCw,
       accent: "text-indigo-600 bg-indigo-50",
+      href: "/requests",
     },
     {
       title: "Tổng giờ công lịch tuần này",
@@ -86,6 +92,7 @@ export default async function ManagementDashboardPage() {
       sub: "Tính trên lịch tuần đã công bố",
       icon: CalendarClock,
       accent: "text-emerald-600 bg-emerald-50",
+      href: "/schedules",
     },
     {
       title: "Chi phí nhân sự dự kiến tuần",
@@ -93,6 +100,7 @@ export default async function ManagementDashboardPage() {
       sub: "Ước tính theo đơn giá giờ hiện hành",
       icon: DollarSign,
       accent: "text-emerald-600 bg-emerald-50",
+      href: "/payroll",
     },
   ];
 
@@ -112,45 +120,50 @@ export default async function ManagementDashboardPage() {
         <div className="flex flex-wrap items-center gap-2">
           <Link
             href="/employees"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition-colors"
           >
             <span>Quản lý nhân sự</span>
             <ArrowRight className="h-4 w-4" />
           </Link>
           <Link
             href="/shifts"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-slate-700 hover:bg-secondary"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-slate-700 hover:bg-secondary transition-colors"
           >
             <span>Cấu hình ca làm</span>
           </Link>
         </div>
       </div>
 
-      {/* KPI Grid */}
+      {/* KPI Grid as clickable Links */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {kpiCards.map((kpi) => {
           const Icon = kpi.icon;
           return (
-            <Card key={kpi.title}>
-              <CardContent className="p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      {kpi.title}
-                    </p>
-                    <p className="text-2xl font-bold text-slate-900">
-                      {kpi.value}
-                    </p>
+            <Link key={kpi.title} href={kpi.href} className="block group">
+              <Card className="h-full transition-all group-hover:border-emerald-500/50 group-hover:shadow-md cursor-pointer">
+                <CardContent className="p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-muted-foreground group-hover:text-emerald-700 transition-colors">
+                        {kpi.title}
+                      </p>
+                      <p className="text-2xl font-bold text-slate-900">
+                        {kpi.value}
+                      </p>
+                    </div>
+                    <div
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${kpi.accent} group-hover:scale-105 transition-transform`}
+                    >
+                      <Icon className="h-5 w-5" />
+                    </div>
                   </div>
-                  <div
-                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${kpi.accent}`}
-                  >
-                    <Icon className="h-5 w-5" />
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground mt-3">{kpi.sub}</p>
-              </CardContent>
-            </Card>
+                  <p className="text-xs text-muted-foreground mt-3 flex items-center justify-between">
+                    <span>{kpi.sub}</span>
+                    <ArrowRight className="h-3 w-3 opacity-0 group-hover:opacity-100 text-emerald-600 transition-opacity" />
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
           );
         })}
       </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -41,6 +41,14 @@ export function AttendanceManagementClient({
   const [selectedDate, setSelectedDate] = useState(initialDate);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
+
+  useEffect(() => {
+    setAttendances(initialAttendances);
+  }, [initialAttendances]);
+
+  useEffect(() => {
+    setSelectedDate(initialDate);
+  }, [initialDate]);
 
   // Adjustment Modal State
   const [editingAttendance, setEditingAttendance] = useState<AttendanceDto | null>(null);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
@@ -85,6 +85,15 @@ export function ScheduleManagementClient({
   const [currentWeek, setCurrentWeek] = useState(weekStart);
   const [viewMode, setViewMode] = useState<ViewMode>("WEEK");
   const [selectedDay, setSelectedDay] = useState(weekStart);
+
+  useEffect(() => {
+    setSchedule(initialSchedule);
+  }, [initialSchedule]);
+
+  useEffect(() => {
+    setCurrentWeek(weekStart);
+    setSelectedDay(weekStart);
+  }, [weekStart]);
 
   // Modals
   const [createScheduleOpen, setCreateScheduleOpen] = useState(false);
