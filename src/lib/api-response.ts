@@ -58,6 +58,27 @@ export function handleApiError(error: unknown): NextResponse {
     );
   }
 
+  const errorStr = String(error);
+  const prismaCode = (error as { code?: string })?.code;
+
+  if (
+    prismaCode === "P1001" ||
+    errorStr.includes("Can't reach database server") ||
+    errorStr.includes("ECONNREFUSED")
+  ) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: "DATABASE_UNAVAILABLE",
+          message:
+            "Không thể kết nối đến cơ sở dữ liệu PostgreSQL (cổng 5433). Vui lòng bật Docker Desktop và chạy lệnh 'docker compose up -d' để khởi động container database.",
+        },
+      },
+      { status: 503 },
+    );
+  }
+
   console.error("[API Error]", error);
   return NextResponse.json(
     {
