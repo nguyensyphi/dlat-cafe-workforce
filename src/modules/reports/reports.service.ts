@@ -26,7 +26,7 @@ export class ReportsService {
       },
     });
 
-    const laborCostTrends = periods.reverse().map((p) => {
+    const laborCostTrends = [...periods].reverse().map((p) => {
       let regularPay = 0;
       let overtimePay = 0;
       let totalPay = 0;
@@ -57,7 +57,7 @@ export class ReportsService {
 
     // 2. Position labor cost distribution (from latest period or recent attendances)
     const positionMap = new Map<string, { count: number; totalCost: number; hours: number }>();
-    const latest = periods.length > 0 ? periods[periods.length - 1] : null;
+    const latest = periods.length > 0 ? periods[0] : null;
     if (latest) {
       for (const item of latest.items) {
         const posName = item.employee.primaryPosition.name;
