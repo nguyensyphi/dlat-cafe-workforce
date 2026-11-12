@@ -21,6 +21,7 @@ import {
   UserCheck,
   UserPlus,
   Users,
+  Zap,
 } from "lucide-react";
 import type { SessionUser } from "@/lib/jwt";
 import { formatDateVN } from "@/lib/date";
@@ -60,6 +61,7 @@ import { formatVnd } from "@/lib/currency";
 import { SCHEDULE_STATUS_LABELS } from "@/modules/schedules/schedule.service";
 import { ScheduleQrModal } from "./schedule-qr-modal";
 import { RegistrationProgressDrawer } from "./registration-progress-drawer";
+import { EmergencyReplaceModal } from "./emergency-replace-modal";
 
 type ViewMode = "WEEK" | "DAY" | "EMPLOYEE" | "SHIFT";
 
@@ -142,6 +144,40 @@ export function ScheduleManagementClient({
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [progressDrawerOpen, setProgressDrawerOpen] = useState(false);
   const [overviewData, setOverviewData] = useState<WeekAvailabilityOverviewDto | null>(null);
+
+  // Instant Emergency Replacement Modal
+  const [emergencyModalOpen, setEmergencyModalOpen] = useState(false);
+  const [emergencyTargetShift, setEmergencyTargetShift] = useState<{
+    id: string;
+    name: string;
+    workDate: string;
+    startTime: string;
+    endTime: string;
+  } | null>(null);
+  const [emergencyAbsentEmployee, setEmergencyAbsentEmployee] = useState<{
+    id: string;
+    fullName: string;
+    positionName?: string;
+  } | null>(null);
+
+  function handleOpenEmergencyReplace(
+    shift: ScheduleShiftDto,
+    assignment: { id: string; employeeId: string; employeeName: string; positionName: string },
+  ) {
+    setEmergencyTargetShift({
+      id: shift.id,
+      name: shift.name,
+      workDate: formatDateVN(shift.workDate),
+      startTime: shift.startTime,
+      endTime: shift.endTime,
+    });
+    setEmergencyAbsentEmployee({
+      id: assignment.employeeId,
+      fullName: assignment.employeeName,
+      positionName: assignment.positionName,
+    });
+    setEmergencyModalOpen(true);
+  }
 
   useEffect(() => {
     let active = true;
@@ -949,6 +985,7 @@ export function ScheduleManagementClient({
                               heatmapSlot={heatmapSlot}
                               isEditable={Boolean(isEditable)}
                               onAssign={() => openAssignModal(shift)}
+                              onEmergencyReplace={handleOpenEmergencyReplace}
                               onRemoveAssignment={handleRemoveAssignment}
                               onDeleteShift={() => handleDeleteShift(shift.id)}
                             />
@@ -1002,6 +1039,7 @@ export function ScheduleManagementClient({
                       shift={shift}
                       isEditable={Boolean(isEditable)}
                       onAssign={() => openAssignModal(shift)}
+                      onEmergencyReplace={handleOpenEmergencyReplace}
                       onRemoveAssignment={handleRemoveAssignment}
                       onDeleteShift={() => handleDeleteShift(shift.id)}
                     />
@@ -1665,6 +1703,18 @@ export function ScheduleManagementClient({
         weekStart={currentWeek}
         onOpenQrModal={() => setQrModalOpen(true)}
       />
+
+      {/* MODAL 9: Instant Emergency Replacement */}
+      <EmergencyReplaceModal
+        open={emergencyModalOpen}
+        onOpenChange={setEmergencyModalOpen}
+        shift={emergencyTargetShift}
+        absentEmployee={emergencyAbsentEmployee}
+        onSuccess={async () => {
+          await reloadSchedule();
+          router.refresh();
+        }}
+      />
     </div>
   );
 }
@@ -1675,6 +1725,7 @@ function ShiftCardCompact({
   heatmapSlot,
   isEditable,
   onAssign,
+  onEmergencyReplace,
   onRemoveAssignment,
   onDeleteShift,
 }: {
@@ -1682,10 +1733,14 @@ function ShiftCardCompact({
   heatmapSlot?: AvailabilityHeatmapSlotDto;
   isEditable: boolean;
   onAssign: () => void;
+  onEmergencyReplace: (shift: ScheduleShiftDto, assignment: any) => void;
   onRemoveAssignment: (id: string) => void;
   onDeleteShift: () => void;
 }) {
   const isFilled = shift.assignedCount >= shift.requiredStaff;
+  const standbyCount = heatmapSlot
+    ? Math.max(0, heatmapSlot.totalAvailable - shift.assignedCount)
+    : 0;
 
   return (
     <div className="rounded-lg border border-border bg-slate-50/70 p-2.5 text-xs space-y-2">
@@ -1714,20 +1769,20 @@ function ShiftCardCompact({
               ? "bg-rose-50 text-rose-700 border-rose-200"
               : heatmapSlot.totalAvailable === shift.requiredStaff
               ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-              : "bg-amber-50 text-amber-800 border-amber-200"
+              : "bg-emerald-50/90 text-emerald-900 border-emerald-300"
           }`}
           title={
             heatmapSlot.employeeNames.length > 0
-              ? `Nhân sự đăng ký: ${heatmapSlot.employeeNames.join(", ")}`
+              ? `Nhân sự đăng ký: ${heatmapSlot.employeeNames.join(", ")} | Có ${standbyCount} nhân sự dự phòng nếu cần thay gấp`
               : "Chưa có nhân sự nào đăng ký ca này"
           }
         >
           <span className="flex items-center gap-1">
             <Users className="h-3 w-3" />
             <span>{heatmapSlot.totalAvailable} rảnh</span>
-            {heatmapSlot.preferredCount > 0 && (
-              <span className="text-[9px] text-amber-600 font-bold">
-                ({heatmapSlot.preferredCount}★)
+            {standbyCount > 0 && (
+              <span className="text-[9px] text-emerald-700 font-bold">
+                (+{standbyCount} dự phòng)
               </span>
             )}
           </span>
@@ -1745,18 +1800,28 @@ function ShiftCardCompact({
             key={a.id}
             className="flex items-center justify-between gap-1 rounded bg-white border border-border px-1.5 py-1 text-[11px]"
           >
-            <span className="truncate font-medium text-slate-800">
+            <span className="truncate font-medium text-slate-800" title={a.employeeName}>
               {a.employeeName}
             </span>
             {isEditable && (
-              <button
-                type="button"
-                onClick={() => onRemoveAssignment(a.id)}
-                className="text-slate-400 hover:text-red-600 shrink-0"
-                title="Gỡ khỏi ca"
-              >
-                ×
-              </button>
+              <div className="flex items-center gap-0.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => onEmergencyReplace(shift, a)}
+                  className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded p-0.5 transition-colors"
+                  title="⚡ Báo nghỉ đột xuất & Điều động người thay thế ngay"
+                >
+                  <Zap className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRemoveAssignment(a.id)}
+                  className="text-slate-400 hover:text-red-600 p-0.5 transition-colors"
+                  title="Gỡ khỏi ca"
+                >
+                  ×
+                </button>
+              </div>
             )}
           </div>
         ))}
@@ -1791,12 +1856,14 @@ function ShiftCardDetailed({
   shift,
   isEditable,
   onAssign,
+  onEmergencyReplace,
   onRemoveAssignment,
   onDeleteShift,
 }: {
   shift: ScheduleShiftDto;
   isEditable: boolean;
   onAssign: () => void;
+  onEmergencyReplace: (shift: ScheduleShiftDto, assignment: any) => void;
   onRemoveAssignment: (id: string) => void;
   onDeleteShift: () => void;
 }) {
@@ -1866,15 +1933,28 @@ function ShiftCardDetailed({
                 )}
               </div>
               {isEditable && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onRemoveAssignment(a.id)}
-                  className="h-7 px-2 text-red-600 hover:text-red-700"
-                >
-                  Gỡ
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onEmergencyReplace(shift, a)}
+                    className="h-7 px-2 text-[11px] text-rose-700 border-rose-300 hover:bg-rose-50 gap-1 font-semibold"
+                    title="Báo nghỉ đột xuất & Điều động người thay thế ngay"
+                  >
+                    <Zap className="h-3 w-3 text-rose-600" />
+                    Thay gấp
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onRemoveAssignment(a.id)}
+                    className="h-7 px-2 text-slate-400 hover:text-red-700"
+                  >
+                    Gỡ
+                  </Button>
+                </div>
               )}
             </div>
           ))}

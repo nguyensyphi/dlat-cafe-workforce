@@ -10,6 +10,7 @@ import {
 } from "@/lib/permissions";
 import { parseOrThrow } from "@/lib/validation";
 import { recordAuditLog } from "@/modules/audit/audit.service";
+import { createNotifications } from "@/modules/notifications/notification.service";
 import {
   evaluateAssignment,
   type AssignmentEvaluation,
@@ -349,6 +350,226 @@ export const scheduleAssignmentService = {
       });
 
       return { id: assignmentId };
+    });
+  },
+
+  /**
+   * Instant Emergency Replacement:
+   * Removes an employee who has an urgent absence (illness, sudden emergency)
+   * and immediately assigns a qualified, available standby employee with push notifications.
+   */
+  async emergencyReplace(
+    actor: SessionUser,
+    shiftId: string,
+    input: {
+      absentEmployeeId: string;
+      replacementEmployeeId: string;
+      reason: string;
+    },
+  ) {
+    assertPermission(actor.role, "schedules:manage");
+
+    if (!input.absentEmployeeId || !input.replacementEmployeeId) {
+      throw new AppValidationError("Vui lòng chọn nhân viên báo nghỉ và nhân viên thay thế");
+    }
+    if (input.absentEmployeeId === input.replacementEmployeeId) {
+      throw new AppValidationError("Nhân viên thay thế không thể trùng với nhân viên báo nghỉ");
+    }
+    const reason = input.reason?.trim() || "Có việc đột xuất";
+
+    return prisma.$transaction(async (tx) => {
+      // Lock both employees for scheduling serialization
+      await lockEmployeeForScheduling(tx, input.absentEmployeeId);
+      await lockEmployeeForScheduling(tx, input.replacementEmployeeId);
+
+      const shift = await loadShiftWithContext(tx, shiftId);
+
+      // Verify absent employee has an active assignment
+      const absentAssignment = shift.assignments.find(
+        (a) => a.employeeId === input.absentEmployeeId,
+      );
+      if (!absentAssignment) {
+        throw new AppValidationError("Nhân viên báo nghỉ không có tên trong ca làm này");
+      }
+
+      // Check replacement employee
+      const replacementEmp = await tx.employee.findUnique({
+        where: { id: input.replacementEmployeeId },
+        select: {
+          id: true,
+          fullName: true,
+          employeeCode: true,
+          status: true,
+          primaryPositionId: true,
+          user: { select: { id: true } },
+          skills: { select: { positionId: true } },
+        },
+      });
+
+      if (!replacementEmp || replacementEmp.status !== "ACTIVE") {
+        throw new AppValidationError("Nhân viên thay thế không tồn tại hoặc đã ngừng làm việc");
+      }
+
+      // Check overlap for replacement employee
+      const existingOverlaps = await tx.shiftAssignment.findMany({
+        where: {
+          employeeId: input.replacementEmployeeId,
+          status: "ASSIGNED",
+          shift: {
+            id: { not: shiftId },
+            status: { not: "CANCELLED" },
+            startAt: { lt: shift.endAt },
+            endAt: { gt: shift.startAt },
+          },
+        },
+        include: { shift: { select: { name: true } } },
+      });
+
+      if (existingOverlaps.length > 0) {
+        const otherName = existingOverlaps[0]?.shift.name;
+        throw new AppValidationError(
+          `Nhân viên ${replacementEmp.fullName} đã có ca làm "${otherName}" trùng giờ, không thể thay thế!`,
+        );
+      }
+
+      // Check approved leave
+      const onLeave = await tx.leaveRequest.findFirst({
+        where: {
+          employeeId: input.replacementEmployeeId,
+          status: "APPROVED",
+          startAt: { lt: shift.endAt },
+          endAt: { gt: shift.startAt },
+        },
+      });
+      if (onLeave) {
+        throw new AppValidationError(`Nhân viên ${replacementEmp.fullName} đang trong kỳ nghỉ phép đã duyệt`);
+      }
+
+      // Preserve position from original assignment
+      const targetPositionId = absentAssignment.positionId;
+
+      // 1. Mark absent employee assignment as REMOVED
+      await tx.shiftAssignment.update({
+        where: { id: absentAssignment.id },
+        data: {
+          status: "REMOVED",
+          explanation: `Nghỉ đột xuất: ${reason} (Đã thay thế bởi ${replacementEmp.fullName})`,
+        },
+      });
+
+      // 2. Upsert replacement employee assignment
+      const newAssignment = await tx.shiftAssignment.upsert({
+        where: {
+          shiftId_employeeId: {
+            shiftId,
+            employeeId: input.replacementEmployeeId,
+          },
+        },
+        update: {
+          positionId: targetPositionId,
+          status: "ASSIGNED",
+          assignedById: actor.userId,
+          explanation: `Thay thế khẩn cấp cho ${absentAssignment.employee.fullName} (Lý do: ${reason})`,
+        },
+        create: {
+          shiftId,
+          employeeId: input.replacementEmployeeId,
+          positionId: targetPositionId,
+          status: "ASSIGNED",
+          assignedById: actor.userId,
+          explanation: `Thay thế khẩn cấp cho ${absentAssignment.employee.fullName} (Lý do: ${reason})`,
+        },
+      });
+
+      await refreshShiftStatus(tx, shiftId);
+
+      // 3. Record Revision
+      const shiftWorkDateStr = formatDateVN(shift.workDate);
+      const summary = `[Thay ca khẩn cấp] ${replacementEmp.fullName} thay cho ${absentAssignment.employee.fullName} (${shift.name} ngày ${shiftWorkDateStr}) do: ${reason}`;
+      await recordScheduleRevision(tx, {
+        scheduleId: shift.scheduleId,
+        actorUserId: actor.userId,
+        action: "EMERGENCY_REPLACEMENT",
+        summary,
+      });
+
+      // 4. Audit Log
+      await recordAuditLog(
+        {
+          userId: actor.userId,
+          action: "EMERGENCY_SHIFT_REPLACEMENT",
+          entityType: "ShiftAssignment",
+          entityId: newAssignment.id,
+          oldValues: {
+            absentEmployeeId: input.absentEmployeeId,
+            absentEmployeeName: absentAssignment.employee.fullName,
+          },
+          newValues: {
+            replacementEmployeeId: input.replacementEmployeeId,
+            replacementEmployeeName: replacementEmp.fullName,
+            reason,
+          },
+        },
+        tx,
+      );
+
+      // 5. Send Urgent Notifications
+      const absentEmpUser = await tx.employee.findUnique({
+        where: { id: input.absentEmployeeId },
+        select: { user: { select: { id: true } } },
+      });
+
+      const notifications: Array<{
+        userId: string;
+        type: "SCHEDULE_UPDATED";
+        title: string;
+        message: string;
+        linkUrl?: string;
+      }> = [];
+
+      // Notification to replacement employee
+      if (replacementEmp.user?.id) {
+        notifications.push({
+          userId: replacementEmp.user.id,
+          type: "SCHEDULE_UPDATED",
+          title: "⚡ ĐIỀU ĐỘNG THAY CA KHẨN CẤP",
+          message: `Bạn được Quản lý điều động thay ca: ${shift.name} (${shift.startTime} – ${shift.endTime}, ngày ${shiftWorkDateStr}) thay cho ${absentAssignment.employee.fullName} (Lý do: ${reason}). Vui lòng có mặt đúng giờ!`,
+          linkUrl: `/employee/schedule?week=${formatIsoDateOnly(shift.schedule.weekStart)}`,
+        });
+      }
+
+      // Notification to absent employee
+      if (absentEmpUser?.user?.id) {
+        notifications.push({
+          userId: absentEmpUser.user.id,
+          type: "SCHEDULE_UPDATED",
+          title: "✓ Đã duyệt nghỉ đột xuất & bố trí người thay",
+          message: `Quản lý đã duyệt nghỉ đột xuất ca ${shift.name} (${shiftWorkDateStr}) của bạn do: "${reason}". Bạn ${replacementEmp.fullName} đã tiếp quản ca làm.`,
+          linkUrl: `/employee/schedule?week=${formatIsoDateOnly(shift.schedule.weekStart)}`,
+        });
+      }
+
+      // Notification to manager
+      notifications.push({
+        userId: actor.userId,
+        type: "SCHEDULE_UPDATED",
+        title: "📢 Điều động ca khẩn cấp thành công",
+        message: `Đã thay thế ${absentAssignment.employee.fullName} bằng ${replacementEmp.fullName} trong ca ${shift.name} ngày ${shiftWorkDateStr} (Lý do: ${reason}).`,
+        linkUrl: `/schedules`,
+      });
+
+      if (notifications.length > 0) {
+        await createNotifications(tx, notifications);
+      }
+
+      return {
+        success: true,
+        message: `Đã điều động ${replacementEmp.fullName} thay ca khẩn cấp cho ${absentAssignment.employee.fullName}`,
+        absentEmployeeName: absentAssignment.employee.fullName,
+        replacementEmployeeName: replacementEmp.fullName,
+        shiftName: shift.name,
+        shiftDate: shiftWorkDateStr,
+      };
     });
   },
 

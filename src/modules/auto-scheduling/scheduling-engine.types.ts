@@ -103,6 +103,18 @@ export interface EmployeeHourSummary {
   estimatedWageVND: string;
 }
 
+export interface ShiftStandbyPool {
+  shiftId: string;
+  shiftName: string;
+  workDate: string;
+  standbyCandidates: Array<{
+    employeeId: string;
+    employeeName: string;
+    positionId: string;
+    preference: string;
+  }>;
+}
+
 export interface RecommendationResult {
   engineName: string;
   weekStart: string;
@@ -112,6 +124,7 @@ export interface RecommendationResult {
   unfilledShifts: UnfilledShiftSlot[];
   employeeSummaries: EmployeeHourSummary[];
   estimatedTotalLaborCostVND: string;
+  standbyPools?: ShiftStandbyPool[];
   executionTimeMs: number;
 }
 

@@ -360,6 +360,57 @@ export class GreedySchedulerEngine implements SchedulingEngine {
 
     const totalSlots = shifts.reduce((sum, s) => sum + s.requiredStaff, 0);
 
+    // Compute Standby Reserve Pools for each shift (so sudden absences have instant backups)
+    const standbyPools = shifts.map((shift) => {
+      const assignedEmployeeIds = new Set(
+        (proposedAssignments.filter((a) => a.shiftId === shift.id) || []).map((a) => a.employeeId),
+      );
+
+      const standbyCandidates = employees
+        .filter((emp) => {
+          // Must not be currently assigned to this shift
+          if (assignedEmployeeIds.has(emp.id)) return false;
+
+          // Must not have an overlapping shift
+          const currentShifts = empAssigned.get(emp.id) ?? [];
+          const hasOverlap = currentShifts.some((cs) =>
+            intervalsOverlap(cs.startAt, cs.endAt, shift.startAt, shift.endAt),
+          );
+          if (hasOverlap) return false;
+
+          // Must not be on leave
+          const onLeave = leaves.some(
+            (l) =>
+              l.employeeId === emp.id &&
+              intervalsOverlap(l.startAt, l.endAt, shift.startAt, shift.endAt),
+          );
+          if (onLeave) return false;
+
+          // Must not be marked unavailable
+          const pref =
+            availMap.get(`${emp.id}_${shift.workDate}_${shift.templateId ?? ""}`) ?? "AVAILABLE";
+          return pref !== "UNAVAILABLE";
+        })
+        .map((emp) => ({
+          employeeId: emp.id,
+          employeeName: emp.fullName,
+          positionId: emp.primaryPositionId,
+          preference:
+            availMap.get(`${emp.id}_${shift.workDate}_${shift.templateId ?? ""}`) ?? "AVAILABLE",
+        }))
+        .sort((a, b) => {
+          const rank = (p: string) => (p === "PREFERRED" ? 0 : p === "AVAILABLE" ? 1 : 2);
+          return rank(a.preference) - rank(b.preference);
+        });
+
+      return {
+        shiftId: shift.id,
+        shiftName: shift.name,
+        workDate: shift.workDate,
+        standbyCandidates,
+      };
+    });
+
     return {
       engineName: this.name,
       weekStart,
@@ -369,6 +420,7 @@ export class GreedySchedulerEngine implements SchedulingEngine {
       unfilledShifts,
       employeeSummaries,
       estimatedTotalLaborCostVND: totalLaborCost.toString(),
+      standbyPools,
       executionTimeMs: Date.now() - startTime,
     };
   }

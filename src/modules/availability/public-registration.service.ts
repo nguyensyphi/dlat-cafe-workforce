@@ -65,9 +65,11 @@ export async function getPublicScheduleRegistrationData(
     },
   });
 
-  const isDeadlinePassed = schedule?.availabilityDeadline
-    ? !isRegistrationOpen(schedule.availabilityDeadline)
-    : false;
+  // Calculate guaranteed deadline for upcoming week (default 23:59 Sunday prior to weekStart)
+  const priorSundayStr = addDaysToDateString(weekStart, -1);
+  const defaultDeadline = new Date(`${priorSundayStr}T23:59:59.000Z`);
+  const effectiveDeadline = schedule?.availabilityDeadline || defaultDeadline;
+  const isDeadlinePassed = !isRegistrationOpen(effectiveDeadline);
   const isScheduleLocked = schedule?.status === "PUBLISHED" || schedule?.status === "LOCKED";
   const isOpen = !isDeadlinePassed && !isScheduleLocked;
 
@@ -164,23 +166,18 @@ export async function getPublicScheduleRegistrationData(
   }
 
   const weekDates = listWeekDates(weekStart);
+  const deadlineFormatted = formatDateTimeVN(effectiveDeadline);
 
   return {
     weekStart,
     weekDates,
-    schedule: schedule
-      ? {
-          id: schedule.id,
-          name: schedule.name,
-          availabilityDeadline: schedule.availabilityDeadline
-            ? schedule.availabilityDeadline.toISOString()
-            : null,
-          deadlineFormatted: schedule.availabilityDeadline
-            ? formatDateTimeVN(schedule.availabilityDeadline)
-            : null,
-          status: schedule.status,
-        }
-      : null,
+    schedule: {
+      id: schedule?.id || null,
+      name: schedule?.name || `Lịch làm việc tuần tới (${weekDates[0]} – ${weekDates[6]})`,
+      availabilityDeadline: effectiveDeadline.toISOString(),
+      deadlineFormatted,
+      status: schedule?.status || "DRAFT",
+    },
     isOpen,
     isDeadlinePassed,
     isScheduleLocked,
