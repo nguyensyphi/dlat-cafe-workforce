@@ -183,6 +183,43 @@ export function AttendanceManagementClient({
     }
   }
 
+  // Batch approve normal shifts
+  async function handleBatchApprove() {
+    const normalPendingIds = attendances
+      .filter((a) => a.status === "PENDING" && !a.isMissingClockOut && a.lateMinutes === 0 && a.workedMinutes > 0)
+      .map((a) => a.id);
+
+    if (normalPendingIds.length === 0) {
+      alert("Không có ca bình thường nào đang chờ duyệt.");
+      return;
+    }
+
+    if (!confirm(`Bạn có chắc muốn duyệt tự động ${normalPendingIds.length} ca bình thường?`)) {
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const res = await fetch("/api/attendance/batch-approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attendanceIds: normalPendingIds }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        alert(`Đã duyệt thành công ${json.data.approvedCount} ca.`);
+        router.refresh();
+        await handleDateChange(selectedDate);
+      } else {
+        alert(json.message || "Lỗi khi duyệt hàng loạt");
+      }
+    } catch {
+      alert("Lỗi kết nối");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Top Header */}
@@ -194,6 +231,15 @@ export function AttendanceManagementClient({
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            onClick={handleBatchApprove}
+            disabled={actionLoading}
+            className="gap-2 border-emerald-600 text-emerald-700 hover:bg-emerald-50"
+          >
+            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+            <span>Duyệt hàng loạt ca chuẩn</span>
+          </Button>
           <Link href="/attendance/kiosk" target="_blank">
             <Button className="gap-2 bg-emerald-600 text-white hover:bg-emerald-700">
               <QrCode className="h-4 w-4" />

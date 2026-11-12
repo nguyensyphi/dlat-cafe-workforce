@@ -24,6 +24,7 @@ import {
 } from "./attendance-calculator";
 import {
   generateSecureToken,
+  getLanIpAddress,
   hashSecureToken,
   isTokenExpired,
 } from "./qr-token";
@@ -54,7 +55,10 @@ export class AttendanceService {
    * Generates a dynamic single-use or time-bounded QR token for the Kiosk screen.
    * Only valid for 45 seconds to strictly prevent replay and remote sharing.
    */
-  async generateKioskToken(actor: SessionUser): Promise<KioskTokenDto> {
+  async generateKioskToken(
+    actor: SessionUser,
+    customBaseUrl?: string,
+  ): Promise<KioskTokenDto> {
     assertPermission(actor.role, "attendance:manage");
 
     const token = generateSecureToken();
@@ -69,7 +73,12 @@ export class AttendanceService {
       },
     });
 
-    const qrDataUrl = await QRCode.toDataURL(token, {
+    const lanIp = getLanIpAddress();
+    const port = Number(process.env.PORT || 3005);
+    const baseUrl = customBaseUrl || `http://${lanIp}:${port}`;
+    const attendanceUrl = `${baseUrl}/employee/attendance?token=${token}`;
+
+    const qrDataUrl = await QRCode.toDataURL(attendanceUrl, {
       margin: 2,
       scale: 8,
       errorCorrectionLevel: "M",
@@ -79,6 +88,9 @@ export class AttendanceService {
       token,
       expiresAt: expiresAt.toISOString(),
       qrDataUrl,
+      lanIp,
+      lanPort: port,
+      attendanceUrl,
     };
   }
 
@@ -102,6 +114,36 @@ export class AttendanceService {
     }
 
     const input = parseOrThrow(scanQrAttendanceSchema, rawInput);
+
+    // 0. Idempotency Check: if request with idempotencyKey was already processed, return cached state
+    if (input.idempotencyKey) {
+      const cachedEvent = await prisma.attendanceEvent.findUnique({
+        where: { idempotencyKey: input.idempotencyKey },
+        include: {
+          attendance: true,
+        },
+      });
+      if (cachedEvent) {
+        const emp = await prisma.employee.findUnique({
+          where: { id: actor.employeeId },
+          select: { fullName: true },
+        });
+        return {
+          attendanceId: cachedEvent.attendanceId,
+          eventType: cachedEvent.eventType,
+          occurredAt: cachedEvent.occurredAt.toISOString(),
+          employeeName: emp?.fullName ?? "Nhân viên",
+          message: `Thao tác đã được ghi nhận trước đó (${formatTimeVN(cachedEvent.occurredAt)})`,
+          currentStatus: {
+            clockIn: cachedEvent.attendance.clockIn?.toISOString() ?? null,
+            clockOut: cachedEvent.attendance.clockOut?.toISOString() ?? null,
+            workedMinutes: cachedEvent.attendance.workedMinutes,
+            breakMinutes: cachedEvent.attendance.breakMinutes,
+            isOnBreak: cachedEvent.eventType === "BREAK_START",
+          },
+        };
+      }
+    }
 
     const tokenHash = hashSecureToken(input.token);
     const now = new Date();
@@ -247,6 +289,8 @@ export class AttendanceService {
         data: {
           attendanceId,
           sessionId: session.id,
+          idempotencyKey: input.idempotencyKey ?? null,
+          deviceId: input.deviceId ?? null,
           eventType: input.eventType,
           occurredAt: now,
           source: "QR",
@@ -296,7 +340,19 @@ export class AttendanceService {
         earlyLeaveMinutes = lateEarly.earlyLeaveMinutes;
       }
 
-      // Update Attendance header record
+      const completionStatus = calc.clockOut ? "COMPLETED" : "IN_PROGRESS";
+      const anomalyStatus =
+        !shift
+          ? "OUT_OF_SCHEDULE"
+          : calc.isMissingClockOut
+            ? "MISSING_CLOCK_OUT"
+            : lateMinutes > 5
+              ? "LATE"
+              : earlyLeaveMinutes > 0
+                ? "EARLY_LEAVE"
+                : "CLEAN";
+
+      // Update Attendance header record with optimistic locking
       const updated = await tx.attendance.update({
         where: { id: attendanceId },
         data: {
@@ -307,8 +363,13 @@ export class AttendanceService {
           approvedMinutes: calc.approvedMinutes,
           paidMinutes: calc.paidMinutes,
           lateMinutes,
+          actualLateMinutes: lateMinutes,
+          penaltyLateMinutes: Math.max(0, lateMinutes - 5),
           earlyLeaveMinutes,
           isMissingClockOut: calc.isMissingClockOut,
+          completionStatus,
+          anomalyStatus,
+          version: { increment: 1 },
         },
       });
 
@@ -562,10 +623,17 @@ export class AttendanceService {
           approvedMinutes: input.approvedMinutes,
           paidMinutes: input.paidMinutes,
           status: input.status,
+          approvalStatus:
+            input.status === "APPROVED"
+              ? "APPROVED"
+              : input.status === "REJECTED"
+                ? "REJECTED"
+                : "ADJUSTED",
           adjustmentReason: input.adjustmentReason,
           approvedById: actor.userId,
           approvedAt: new Date(),
           source: "MANUAL",
+          version: { increment: 1 },
           ...(input.clockIn ? { clockIn: new Date(input.clockIn) } : {}),
           ...(input.clockOut ? { clockOut: new Date(input.clockOut) } : {}),
         },
@@ -602,6 +670,105 @@ export class AttendanceService {
     });
 
     return this.mapToDto(updated);
+  }
+
+  /**
+   * Phê duyệt một bản ghi chấm công (Duyệt theo giờ thực tế hoặc số phút chỉ định)
+   */
+  async approveAttendance(
+    actor: SessionUser,
+    attendanceId: string,
+    approvedMinutes?: number,
+    paidMinutes?: number,
+  ): Promise<AttendanceDto> {
+    assertPermission(actor.role, "attendance:manage");
+
+    const existing = await prisma.attendance.findUnique({
+      where: { id: attendanceId },
+    });
+    if (!existing) {
+      throw new AppNotFoundError("Không tìm thấy bản ghi chấm công.");
+    }
+
+    const appMinutes = approvedMinutes ?? existing.workedMinutes;
+    const pMinutes = paidMinutes ?? appMinutes;
+
+    return this.manualAdjustAttendance(actor, attendanceId, {
+      approvedMinutes: appMinutes,
+      paidMinutes: pMinutes,
+      status: "APPROVED",
+      adjustmentReason: "Quản lý phê duyệt ca làm việc",
+    });
+  }
+
+  /**
+   * Từ chối một bản ghi chấm công với lý do tối thiểu 5 ký tự
+   */
+  async rejectAttendance(
+    actor: SessionUser,
+    attendanceId: string,
+    reason: string,
+  ): Promise<AttendanceDto> {
+    assertPermission(actor.role, "attendance:manage");
+
+    if (!reason || reason.trim().length < 5) {
+      throw new AppValidationError("Lý do từ chối phải có ít nhất 5 ký tự.");
+    }
+
+    return this.manualAdjustAttendance(actor, attendanceId, {
+      approvedMinutes: 0,
+      paidMinutes: 0,
+      status: "REJECTED",
+      adjustmentReason: reason.trim(),
+    });
+  }
+
+  /**
+   * Mở lại ca đã duyệt hoặc đã từ chối để thẩm định lại
+   */
+  async reopenAttendance(
+    actor: SessionUser,
+    attendanceId: string,
+    reason: string,
+  ): Promise<AttendanceDto> {
+    assertPermission(actor.role, "attendance:manage");
+
+    if (!reason || reason.trim().length < 5) {
+      throw new AppValidationError("Lý do mở lại phải có ít nhất 5 ký tự.");
+    }
+
+    return this.manualAdjustAttendance(actor, attendanceId, {
+      approvedMinutes: 0,
+      paidMinutes: 0,
+      status: "PENDING",
+      adjustmentReason: `[Mở lại thẩm định]: ${reason.trim()}`,
+    });
+  }
+
+  /**
+   * Duyệt hàng loạt ca bình thường (không đi trễ, không quên chấm ra)
+   */
+  async batchApproveAttendances(
+    actor: SessionUser,
+    attendanceIds: string[],
+  ): Promise<{ approvedCount: number; errors: string[] }> {
+    assertPermission(actor.role, "attendance:manage");
+
+    let approvedCount = 0;
+    const errors: string[] = [];
+
+    for (const id of attendanceIds) {
+      try {
+        await this.approveAttendance(actor, id);
+        approvedCount++;
+      } catch (err: unknown) {
+        errors.push(
+          `Bản ghi ${id}: ${err instanceof Error ? err.message : "Thất bại"}`,
+        );
+      }
+    }
+
+    return { approvedCount, errors };
   }
 
   private mapToDto(row: AttendanceWithRelations): AttendanceDto {

@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import Link from "next/link";
 import {
   AlertCircle,
   Camera,
   CheckCircle2,
+  ClipboardCheck,
   Clock,
   Coffee,
   History,
@@ -45,17 +47,31 @@ interface EmployeeAttendanceProps {
     };
   } | null;
   history: AttendanceDto[];
+  urlToken?: string;
 }
 
 type EventType = "CLOCK_IN" | "BREAK_START" | "BREAK_END" | "CLOCK_OUT";
 
+const EVENT_LABELS: Record<EventType, string> = {
+  CLOCK_IN: "Vào ca",
+  BREAK_START: "Bắt đầu nghỉ",
+  BREAK_END: "Hết giờ nghỉ",
+  CLOCK_OUT: "Tan ca",
+};
+
 export function EmployeeAttendanceClient({
   initialTodayStatus,
   history: initialHistory,
+  urlToken,
 }: EmployeeAttendanceProps) {
   const [tab, setTab] = useState<"SCAN" | "HISTORY">("SCAN");
   const [todayStatus, setTodayStatus] = useState(initialTodayStatus);
   const [history] = useState(initialHistory);
+
+  const isCompletedToday = Boolean(
+    todayStatus?.currentStatus?.hasClockedIn &&
+    todayStatus?.currentStatus?.hasClockedOut
+  );
 
   // Scanner State
   const [selectedEventType, setSelectedEventType] = useState<EventType>(() => {
@@ -66,7 +82,7 @@ export function EmployeeAttendanceClient({
   });
 
   const [scannerActive, setScannerActive] = useState(false);
-  const [manualToken, setManualToken] = useState("");
+  const [manualToken, setManualToken] = useState(urlToken || "");
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -89,10 +105,21 @@ export function EmployeeAttendanceClient({
 
   // Submit scan with token
   const handleProcessToken = useCallback(
-    async (token: string) => {
+    async (rawToken: string) => {
       setLoading(true);
       setErrorMessage(null);
       setSuccessMessage(null);
+
+      let token = rawToken.trim();
+      if (token.includes("token=")) {
+        try {
+          const urlObj = new URL(token);
+          token = urlObj.searchParams.get("token") || token;
+        } catch {
+          const match = token.match(/token=([a-zA-Z0-9_-]+)/);
+          if (match && match[1]) token = match[1];
+        }
+      }
 
       try {
         const res = await fetch("/api/attendance/scan", {
@@ -173,7 +200,7 @@ export function EmployeeAttendanceClient({
       setScannerActive(true);
     } catch {
       setErrorMessage(
-        "Không thể mở máy ảnh. Vui lòng cấp quyền truy cập camera trên trình duyệt hoặc nhập mã dự phòng bên dưới.",
+        "Trình duyệt điện thoại bảo mật chặn camera khi kết nối mạng nội bộ HTTP. Bạn hãy dùng Camera thông thường hoặc Zalo của điện thoại quét trực tiếp mã QR trên Kiosk — hệ thống sẽ tự động mở liên kết và chấm công ngay lập tức!",
       );
       setScannerActive(false);
     }
@@ -326,6 +353,45 @@ export function EmployeeAttendanceClient({
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
+                {/* QR Detected Quick Action Banner */}
+                {urlToken && !successMessage && (
+                  <div className="rounded-xl border-2 border-emerald-500 bg-emerald-50/90 p-4 text-emerald-950 shadow-sm animate-in fade-in">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-emerald-600 rounded-lg text-white">
+                        {isCompletedToday ? (
+                          <CheckCircle2 className="h-5 w-5" />
+                        ) : (
+                          <QrCode className="h-5 w-5" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-bold text-sm text-emerald-900">
+                          {isCompletedToday
+                            ? "Ca làm việc hôm nay đã hoàn thành!"
+                            : "Đã nhận mã QR từ Kiosk!"}
+                        </div>
+                        <div className="text-xs text-emerald-700 mt-0.5">
+                          {isCompletedToday
+                            ? `Bạn đã hoàn tất ca làm việc hôm nay (${todayStatus?.currentStatus?.clockInTime ? formatTimeVN(todayStatus.currentStatus.clockInTime) : "—"} đến ${todayStatus?.currentStatus?.clockOutTime ? formatTimeVN(todayStatus.currentStatus.clockOutTime) : "—"}). Nếu cần làm ca tiếp theo hoặc bổ sung, vui lòng liên hệ Quản lý.`
+                            : `Hệ thống đã nhận diện mã bảo mật cho thao tác [${EVENT_LABELS[selectedEventType]}]. Vui lòng bấm nút bên dưới để xác nhận:`}
+                        </div>
+                      </div>
+                    </div>
+                    {!isCompletedToday && (
+                      <div className="mt-3">
+                        <Button
+                          type="button"
+                          onClick={() => handleProcessToken(urlToken)}
+                          disabled={loading}
+                          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 shadow-sm text-sm"
+                        >
+                          {loading ? "Đang xác thực trên máy chủ..." : `Bấm để ghi nhận [${EVENT_LABELS[selectedEventType]}] ngay`}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Event Selector Buttons */}
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <button
@@ -381,6 +447,29 @@ export function EmployeeAttendanceClient({
                   </button>
                 </div>
 
+                {/* Handover Notice before Clock-out */}
+                {selectedEventType === "CLOCK_OUT" && (
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-xl border border-amber-300 bg-amber-50 text-amber-900 text-xs">
+                    <div className="flex items-center gap-2">
+                      <ClipboardCheck className="h-5 w-5 text-amber-700 flex-shrink-0" />
+                      <div>
+                        <div className="font-semibold text-amber-950">
+                          Quy trình chuẩn: Bàn giao ca trước khi Tan ca
+                        </div>
+                        <div className="text-muted-foreground mt-0.5">
+                          Kiểm đếm quỹ két, kho nguyên liệu và máy móc. Thời gian bàn giao được tính trọn vẹn vào giờ làm của bạn.
+                        </div>
+                      </div>
+                    </div>
+                    <Link href="/employee/handover">
+                      <Button size="sm" className="bg-amber-700 hover:bg-amber-800 text-white gap-1 text-xs whitespace-nowrap">
+                        <ClipboardCheck className="h-3.5 w-3.5" />
+                        Lập biên bản bàn giao
+                      </Button>
+                    </Link>
+                  </div>
+                )}
+
                 {/* Notifications */}
                 {errorMessage && (
                   <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300">
@@ -402,6 +491,10 @@ export function EmployeeAttendanceClient({
                     id={scannerContainerId}
                     className="aspect-square w-full max-w-sm overflow-hidden rounded-2xl border-2 border-dashed border-border bg-muted/40"
                   />
+
+                  <p className="text-xs text-muted-foreground text-center max-w-sm px-2">
+                    💡 <b>Mẹo tiện nhất:</b> Dùng Camera điện thoại hoặc Zalo quét mã QR trên màn hình Kiosk — hệ thống sẽ tự động mở liên kết và chấm công ngay!
+                  </p>
 
                   <div className="flex items-center gap-3">
                     {!scannerActive ? (

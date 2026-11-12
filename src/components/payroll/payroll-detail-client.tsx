@@ -10,6 +10,8 @@ import {
   CheckCircle2,
   Download,
   Edit3,
+  FileSpreadsheet,
+  FileText,
   Lock,
 } from "lucide-react";
 import { formatDateVN } from "@/lib/date";
@@ -30,6 +32,8 @@ import type {
   PayrollItemDto,
   PayrollPeriodDetailDto,
 } from "@/modules/payroll/payroll.types";
+import { ExcelImportModal } from "./excel-import-modal";
+import { PayslipModal, type PayslipData } from "./payslip-modal";
 
 const STATUS_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" | "warning"; className?: string }> = {
   DRAFT: { label: "Bản nháp", variant: "outline" },
@@ -63,6 +67,47 @@ export function PayrollDetailClient({
   const isLocked = period.status === "LOCKED";
   const isPaid = period.status === "PAID";
   const canEditItems = !isLocked && !isPaid;
+
+  // Excel Import & Payslip Modal States
+  const [excelModalOpen, setExcelModalOpen] = useState(false);
+  const [payslipModalOpen, setPayslipModalOpen] = useState(false);
+  const [selectedPayslipData, setSelectedPayslipData] = useState<PayslipData | null>(null);
+
+  const handleOpenPayslip = (item: PayrollItemDto) => {
+    setSelectedPayslipData({
+      periodName: period.name,
+      periodStart: formatDateVN(period.periodStart),
+      periodEnd: formatDateVN(period.periodEnd),
+      paymentDate: period.paymentDate ? formatDateVN(period.paymentDate) : null,
+      employeeCode: item.employeeCode,
+      fullName: item.employeeName,
+      positionName: item.primaryPositionName,
+      workedHours: item.paidHours,
+      hourlyRateVND: item.hourlyRateSnapshotVND,
+      basePayVND: item.basePayVND,
+      overtimePayVND: item.overtimePayVND,
+      allowancesVND: item.allowancesVND,
+      bonusesVND: item.bonusesVND,
+      deductionsVND: item.deductionsVND,
+      adjustmentsVND: item.adjustmentsVND,
+      adjustmentReason: item.adjustmentReason,
+      totalPayVND: item.totalPayVND,
+    });
+    setPayslipModalOpen(true);
+  };
+
+  const handleReloadPeriod = async () => {
+    try {
+      const res = await fetch(`/api/payroll/periods/${period.id}`);
+      const json = await res.json();
+      if (json.ok) {
+        setPeriod(json.data);
+        router.refresh();
+      }
+    } catch {
+      // ignore
+    }
+  };
 
   // 1. Calculate / Recalculate from actual attendances
   async function handleCalculate() {
@@ -216,6 +261,19 @@ export function PayrollDetailClient({
               <span>Xuất CSV (Excel)</span>
             </Button>
           </a>
+
+          {/* Excel Import button */}
+          {!isLocked && !isPaid && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setExcelModalOpen(true)}
+              className="gap-2 border-emerald-600/60 text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 font-medium"
+            >
+              <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+              <span>Nhập giờ từ Excel</span>
+            </Button>
+          )}
 
           {/* Calculate button */}
           {!isLocked && !isPaid && (
@@ -371,6 +429,7 @@ export function PayrollDetailClient({
                     <th className="py-3 px-3 text-right">Phụ cấp/Thưởng</th>
                     <th className="py-3 px-3 text-right">Khấu trừ</th>
                     <th className="py-3 px-3 text-right">Thực lĩnh</th>
+                    <th className="py-3 px-3 text-center">Phiếu lương</th>
                     {canEditItems && <th className="py-3 px-3 text-right">Sửa</th>}
                   </tr>
                 </thead>
@@ -433,6 +492,18 @@ export function PayrollDetailClient({
                       </td>
                       <td className="py-3 px-3 text-right font-bold text-emerald-600">
                         {formatVnd(item.totalPayVND)}
+                      </td>
+                      <td className="py-3 px-3 text-center">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 px-2 text-xs gap-1 border-primary/30 text-primary hover:bg-primary/5"
+                          onClick={() => handleOpenPayslip(item)}
+                          title="Xem & chia sẻ phiếu tính lương cho nhân viên"
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                          <span>Phiếu lương</span>
+                        </Button>
                       </td>
                       {canEditItems && (
                         <td className="py-3 px-3 text-right">
@@ -554,6 +625,22 @@ export function PayrollDetailClient({
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Excel Import Modal */}
+      <ExcelImportModal
+        open={excelModalOpen}
+        onOpenChange={setExcelModalOpen}
+        periodId={period.id}
+        periodName={period.name}
+        onSuccess={handleReloadPeriod}
+      />
+
+      {/* Payslip Modal */}
+      <PayslipModal
+        open={payslipModalOpen}
+        onOpenChange={setPayslipModalOpen}
+        data={selectedPayslipData}
+      />
     </div>
   );
 }

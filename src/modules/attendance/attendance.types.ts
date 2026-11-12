@@ -47,6 +47,9 @@ export interface KioskTokenDto {
   token: string;
   expiresAt: string;
   qrDataUrl: string;
+  lanIp?: string;
+  lanPort?: number;
+  attendanceUrl?: string;
 }
 
 export interface AttendanceScanResultDto {

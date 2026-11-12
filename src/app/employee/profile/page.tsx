@@ -1,4 +1,14 @@
-import { Briefcase, Calendar, Clock, DollarSign, Phone } from "lucide-react";
+import Link from "next/link";
+import {
+  Briefcase,
+  Calendar,
+  ChevronRight,
+  Clock,
+  DollarSign,
+  FileText,
+  LayoutDashboard,
+  Phone,
+} from "lucide-react";
 import type { SkillProficiency } from "@prisma/client";
 import { requireServerSession } from "@/lib/auth";
 import { formatVnd } from "@/lib/currency";
@@ -92,6 +102,71 @@ export default async function EmployeeSelfProfilePage() {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Quick Navigation Shortcuts */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Link
+          href="/employee/availability"
+          className="flex items-center justify-between p-4 rounded-xl border border-border bg-card hover:bg-slate-50 transition-colors shadow-sm"
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+              <Clock className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-900">
+                Đăng ký thời gian rảnh
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Gửi lịch rảnh các ngày trong tuần tới cho Quản lý
+              </p>
+            </div>
+          </div>
+          <ChevronRight className="h-4 w-4 text-slate-400" />
+        </Link>
+
+        <Link
+          href="/employee/requests"
+          className="flex items-center justify-between p-4 rounded-xl border border-border bg-card hover:bg-slate-50 transition-colors shadow-sm"
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
+              <FileText className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-900">
+                Đơn xin nghỉ &amp; Đổi ca
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Tạo yêu cầu nghỉ phép hoặc đổi ca với đồng nghiệp
+              </p>
+            </div>
+          </div>
+          <ChevronRight className="h-4 w-4 text-slate-400" />
+        </Link>
+
+        {(actor.role === "OWNER" || actor.role === "MANAGER") && (
+          <Link
+            href="/dashboard"
+            className="sm:col-span-2 flex items-center justify-between p-4 rounded-xl border border-emerald-200 bg-emerald-50/60 hover:bg-emerald-100/60 transition-colors shadow-sm"
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-600 text-white">
+                <LayoutDashboard className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-emerald-950">
+                  Truy cập Trang Quản lý quán
+                </p>
+                <p className="text-xs text-emerald-800">
+                  Xem bảng điều khiển, xếp ca tuần, duyệt công và quản lý tài chính
+                </p>
+              </div>
+            </div>
+            <ChevronRight className="h-4 w-4 text-emerald-700" />
+          </Link>
+        )}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

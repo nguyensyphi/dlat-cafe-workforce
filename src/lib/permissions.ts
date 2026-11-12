@@ -36,6 +36,12 @@ export class AppValidationError extends AppError {
   }
 }
 
+export class AppConflictError extends AppError {
+  constructor(message = "Xung đột dữ liệu. Bản ghi đã bị thay đổi bởi người dùng khác.") {
+    super(message, 409, "CONFLICT");
+  }
+}
+
 /**
  * Raised when an operation is valid but has warnings that require explicit
  * confirmation (e.g. assigning an employee who registered as unavailable).

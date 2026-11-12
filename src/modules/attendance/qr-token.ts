@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import os from "os";
 
 export function generateSecureToken(): string {
   // Generate 32 bytes of cryptographically secure random bytes
@@ -24,5 +25,38 @@ export function verifyTokenHash(token: string, expectedHash: string): boolean {
 
 export function isTokenExpired(expiresAt: Date, now: Date = new Date()): boolean {
   return now.getTime() > expiresAt.getTime();
+}
+
+/**
+ * Returns the best candidate IPv4 address for local network (Wi-Fi/LAN) access.
+ * Excludes virtual adapters like VMware, WSL, virtualbox, loopback.
+ */
+export function getLanIpAddress(): string {
+  try {
+    const interfaces = os.networkInterfaces();
+    let fallbackIp: string | null = null;
+
+    for (const name of Object.keys(interfaces)) {
+      const lower = name.toLowerCase();
+      const isVirtual =
+        lower.includes("vmnet") ||
+        lower.includes("virtual") ||
+        lower.includes("loopback") ||
+        lower.includes("wsl") ||
+        lower.includes("pseudo");
+
+      for (const net of interfaces[name] || []) {
+        if (net.family === "IPv4" && !net.internal) {
+          if (!isVirtual) {
+            return net.address;
+          }
+          if (!fallbackIp) fallbackIp = net.address;
+        }
+      }
+    }
+    return fallbackIp || "127.0.0.1";
+  } catch {
+    return "127.0.0.1";
+  }
 }
 

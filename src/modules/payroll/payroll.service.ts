@@ -697,6 +697,9 @@ export class PayrollService {
       periodStart: string;
       periodEnd: string;
       paymentDate: string | null;
+      employeeCode: string;
+      fullName: string;
+      positionName: string;
       paidHours: number;
       hourlyRateVND: bigint;
       basePayVND: bigint;
@@ -705,6 +708,7 @@ export class PayrollService {
       bonusesVND: bigint;
       deductionsVND: bigint;
       adjustmentsVND: bigint;
+      adjustmentReason: string | null;
       totalPayVND: bigint;
       status: string;
     }>
@@ -725,6 +729,11 @@ export class PayrollService {
       orderBy: { payrollPeriod: { periodStart: "desc" } },
       include: {
         payrollPeriod: true,
+        employee: {
+          include: {
+            primaryPosition: true,
+          },
+        },
       },
     });
 
@@ -736,6 +745,9 @@ export class PayrollService {
       paymentDate: i.payrollPeriod.paymentDate
         ? formatIsoDateOnly(i.payrollPeriod.paymentDate)
         : null,
+      employeeCode: i.employee.employeeCode,
+      fullName: i.employee.fullName,
+      positionName: i.employee.primaryPosition?.name ?? "Nhân viên",
       paidHours: Number(i.paidHours),
       hourlyRateVND: i.hourlyRateSnapshot,
       basePayVND: i.basePay,
@@ -744,6 +756,7 @@ export class PayrollService {
       bonusesVND: i.bonuses,
       deductionsVND: i.deductions,
       adjustmentsVND: i.adjustments,
+      adjustmentReason: i.adjustmentReason,
       totalPayVND: i.totalPay,
       status: i.payrollPeriod.status,
     }));

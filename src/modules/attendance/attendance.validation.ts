@@ -6,6 +6,8 @@ export const scanQrAttendanceSchema = z.object({
     errorMap: () => ({ message: "Loại sự kiện chấm công không hợp lệ" }),
   }),
   note: z.string().max(255).optional().nullable(),
+  idempotencyKey: z.string().max(128).optional().nullable(),
+  deviceId: z.string().max(100).optional().nullable(),
 });
 
 export const manualAdjustAttendanceSchema = z.object({

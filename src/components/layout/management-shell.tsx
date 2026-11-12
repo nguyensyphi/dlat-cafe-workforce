@@ -1,16 +1,19 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
   Briefcase,
   Calendar,
+  ClipboardCheck,
   Clock,
   Coffee,
   DollarSign,
   FileText,
   LayoutDashboard,
+  Loader2,
   QrCode,
   Settings,
   Shield,
@@ -38,6 +41,11 @@ const NAV_ITEMS = [
     href: "/attendance",
     label: "Chấm công",
     icon: QrCode,
+  },
+  {
+    href: "/handovers",
+    label: "Bàn giao ca",
+    icon: ClipboardCheck,
   },
   {
     href: "/payroll",
@@ -96,9 +104,27 @@ export function ManagementShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const [targetHref, setTargetHref] = useState<string | null>(null);
+
+  useEffect(() => {
+    setTargetHref(null);
+  }, [pathname]);
+
+  const handleNavClick = (href: string) => {
+    if (href !== pathname) {
+      setTargetHref(href);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background flex flex-col md:flex-row">
+      {/* Top Global Navigation Progress Bar */}
+      {targetHref && (
+        <div className="fixed top-0 left-0 right-0 h-1 bg-emerald-600 z-50 overflow-hidden">
+          <div className="h-full bg-emerald-300 animate-pulse w-full" />
+        </div>
+      )}
+
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 border-r border-border bg-card z-30">
         <div className="flex h-16 items-center gap-3 px-5 border-b border-border">
@@ -115,30 +141,45 @@ export function ManagementShell({
           </div>
         </div>
 
-        <nav className="flex-1 space-y-1 px-3 py-4">
+        <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
           {NAV_ITEMS.filter((item) => !item.ownerOnly || user.role === "OWNER").map((item) => {
             const active =
-              pathname === item.href || pathname.startsWith(`${item.href}/`);
+              item.href === "/dashboard"
+                ? pathname === "/dashboard"
+                : pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const isPendingNav = targetHref === item.href;
             const Icon = item.icon;
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                prefetch={false}
+                prefetch={true}
+                onClick={() => handleNavClick(item.href)}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors cursor-pointer select-none",
                   active
-                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200/70"
-                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200/70 shadow-sm"
+                    : isPendingNav
+                      ? "bg-slate-100 text-emerald-700"
+                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
                 )}
               >
-                <Icon
-                  className={cn(
-                    "h-4 w-4 shrink-0",
-                    active ? "text-emerald-600" : "text-slate-400",
-                  )}
-                />
+                {isPendingNav ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-emerald-600" />
+                ) : (
+                  <Icon
+                    className={cn(
+                      "h-4 w-4 shrink-0",
+                      active ? "text-emerald-600" : "text-slate-400",
+                    )}
+                  />
+                )}
                 <span>{item.label}</span>
+                {isPendingNav && (
+                  <span className="ml-auto text-[10px] text-emerald-600 animate-pulse font-normal">
+                    Đang mở...
+                  </span>
+                )}
               </Link>
             );
           })}
@@ -147,6 +188,7 @@ export function ManagementShell({
         <div className="border-t border-border p-4 space-y-3">
           <Link
             href="/employee/profile"
+            onClick={() => handleNavClick("/employee/profile")}
             className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-100"
           >
             <UserCircle className="h-4 w-4 text-slate-400" />
@@ -200,27 +242,36 @@ export function ManagementShell({
 
       {/* Mobile Bottom Navigation */}
       <nav className="fixed bottom-0 inset-x-0 z-30 flex md:hidden items-center justify-around border-t border-border bg-card h-16 px-1">
-        {NAV_ITEMS.filter((item) => ["/dashboard", "/schedules", "/attendance", "/payroll", "/requests"].includes(item.href)).map((item) => {
+        {NAV_ITEMS.filter((item) => ["/dashboard", "/schedules", "/attendance", "/handovers", "/payroll"].includes(item.href)).map((item) => {
           const active =
-            pathname === item.href || pathname.startsWith(`${item.href}/`);
+            item.href === "/dashboard"
+              ? pathname === "/dashboard"
+              : pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const isPendingNav = targetHref === item.href;
           const Icon = item.icon;
           return (
             <Link
               key={item.href}
               href={item.href}
-              prefetch={false}
+              onClick={() => handleNavClick(item.href)}
               className={cn(
-                "flex flex-col items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-medium",
-                active ? "text-emerald-700" : "text-slate-500",
+                "flex flex-col items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-medium cursor-pointer",
+                active ? "text-emerald-700 font-semibold" : "text-slate-500",
               )}
             >
-              <Icon
-                className={cn(
-                  "h-5 w-5",
-                  active ? "text-emerald-600" : "text-slate-400",
-                )}
-              />
-              <span className="truncate max-w-[68px]">{item.label}</span>
+              {isPendingNav ? (
+                <Loader2 className="h-5 w-5 animate-spin text-emerald-600" />
+              ) : (
+                <Icon
+                  className={cn(
+                    "h-5 w-5",
+                    active ? "text-emerald-600" : "text-slate-400",
+                  )}
+                />
+              )}
+              <span className="truncate max-w-[68px]">
+                {isPendingNav ? "Đang tải..." : item.label}
+              </span>
             </Link>
           );
         })}

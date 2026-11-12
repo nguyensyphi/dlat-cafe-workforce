@@ -10,6 +10,7 @@ import {
   AttendanceSource,
   AttendanceEventType,
   PayrollStatus,
+  HandoverStatus,
   Prisma,
 } from "@prisma/client";
 
@@ -63,23 +64,23 @@ async function main() {
   const tplToi = templates.find((t) => t.code === "CA_TOI") ?? templates[2]!;
 
   // -------------------------------------------------------------
-  // 2. Schedule for Current Week: 02/11/2026 - 08/11/2026 (PUBLISHED)
+  // 2. Schedule for Current Week: 09/11/2026 - 15/11/2026 (PUBLISHED - TUẦN HIỆN TẠI)
   // -------------------------------------------------------------
-  const currentWeekStart = new Date("2026-11-02T00:00:00.000Z");
+  const currentWeekStart = new Date("2026-11-09T00:00:00.000Z");
 
   const currentSchedule = await prisma.schedule.upsert({
     where: { weekStart: currentWeekStart },
     update: {
       status: ScheduleStatus.PUBLISHED,
-      publishedAt: new Date("2026-11-01T10:00:00.000Z"),
+      publishedAt: new Date("2026-11-08T10:00:00.000Z"),
       publishedById: managerUser.id,
-      name: "Lịch tuần 45 (02/11 - 08/11/2026)",
+      name: "Lịch tuần 46 (09/11 - 15/11/2026)",
     },
     create: {
       weekStart: currentWeekStart,
-      name: "Lịch tuần 45 (02/11 - 08/11/2026)",
+      name: "Lịch tuần 46 (09/11 - 15/11/2026)",
       status: ScheduleStatus.PUBLISHED,
-      publishedAt: new Date("2026-11-01T10:00:00.000Z"),
+      publishedAt: new Date("2026-11-08T10:00:00.000Z"),
       publishedById: managerUser.id,
     },
   });
@@ -87,6 +88,8 @@ async function main() {
   console.log("   ✓ Lịch tuần hiện tại:", currentSchedule.name);
 
   // Clear existing operational data in correct foreign key order
+  await prisma.shiftHandover.deleteMany({});
+  await prisma.attendanceAdjustmentRequest.deleteMany({});
   await prisma.attendanceEvent.deleteMany({});
   await prisma.attendance.deleteMany({});
   await prisma.swapRequest.deleteMany({});
@@ -96,13 +99,13 @@ async function main() {
   await prisma.shift.deleteMany({});
 
   const daysOfWeek = [
-    { dateStr: "2026-11-02", dayName: "Thứ 2" },
-    { dateStr: "2026-11-03", dayName: "Thứ 3" },
-    { dateStr: "2026-11-04", dayName: "Thứ 4" },
-    { dateStr: "2026-11-05", dayName: "Thứ 5" },
-    { dateStr: "2026-11-06", dayName: "Thứ 6" }, // TODAY
-    { dateStr: "2026-11-07", dayName: "Thứ 7" },
-    { dateStr: "2026-11-08", dayName: "Chủ nhật" },
+    { dateStr: "2026-11-09", dayName: "Thứ 2" },
+    { dateStr: "2026-11-10", dayName: "Thứ 3" },
+    { dateStr: "2026-11-11", dayName: "Thứ 4" }, // HÔM NAY (11/11/2026)
+    { dateStr: "2026-11-12", dayName: "Thứ 5" },
+    { dateStr: "2026-11-13", dayName: "Thứ 6" },
+    { dateStr: "2026-11-14", dayName: "Thứ 7" },
+    { dateStr: "2026-11-15", dayName: "Chủ nhật" },
   ];
 
   const shiftRecords: Array<{
@@ -269,20 +272,20 @@ async function main() {
   console.log("   ✓ Đã tạo 21 ca làm việc và phân công đầy đủ cho 7 ngày trong tuần.");
 
   // -------------------------------------------------------------
-  // 3. Schedule for Next Week: 09/11/2026 - 15/11/2026 (DRAFT)
+  // 3. Schedule for Next Week: 16/11/2026 - 22/11/2026 (DRAFT)
   // -------------------------------------------------------------
-  const nextWeekStart = new Date("2026-11-09T00:00:00.000Z");
+  const nextWeekStart = new Date("2026-11-16T00:00:00.000Z");
   await prisma.schedule.upsert({
     where: { weekStart: nextWeekStart },
     update: {
-      name: "Lịch tuần 46 (09/11 - 15/11/2026)",
+      name: "Lịch tuần 47 (16/11 - 22/11/2026)",
       status: ScheduleStatus.DRAFT,
     },
     create: {
       weekStart: nextWeekStart,
-      name: "Lịch tuần 46 (09/11 - 15/11/2026)",
+      name: "Lịch tuần 47 (16/11 - 22/11/2026)",
       status: ScheduleStatus.DRAFT,
-      availabilityDeadline: new Date("2026-11-07T23:59:59.000Z"),
+      availabilityDeadline: new Date("2026-11-14T23:59:59.000Z"),
     },
   });
 
@@ -290,11 +293,11 @@ async function main() {
   // 4. Availabilities for Next Week
   // -------------------------------------------------------------
   const nextWeekDays = [
-    { date: new Date("2026-11-09T00:00:00.000Z"), str: "2026-11-09" },
-    { date: new Date("2026-11-10T00:00:00.000Z"), str: "2026-11-10" },
-    { date: new Date("2026-11-11T00:00:00.000Z"), str: "2026-11-11" },
-    { date: new Date("2026-11-12T00:00:00.000Z"), str: "2026-11-12" },
-    { date: new Date("2026-11-13T00:00:00.000Z"), str: "2026-11-13" },
+    { date: new Date("2026-11-16T00:00:00.000Z"), str: "2026-11-16" },
+    { date: new Date("2026-11-17T00:00:00.000Z"), str: "2026-11-17" },
+    { date: new Date("2026-11-18T00:00:00.000Z"), str: "2026-11-18" },
+    { date: new Date("2026-11-19T00:00:00.000Z"), str: "2026-11-19" },
+    { date: new Date("2026-11-20T00:00:00.000Z"), str: "2026-11-20" },
   ];
 
   for (const d of nextWeekDays) {
@@ -357,13 +360,13 @@ async function main() {
   console.log("   ✓ Đã tạo nguyện vọng lịch rảnh tuần tới.");
 
   // -------------------------------------------------------------
-  // 5. Attendance Records for Past Days & Today (06/11/2026)
+  // 5. Attendance Records for Past Days & Today (11/11/2026)
   // -------------------------------------------------------------
-  const todayStr = "2026-11-06";
+  const todayStr = "2026-11-11";
   const todayDate = new Date(`${todayStr}T00:00:00.000Z`);
 
-  // Past days: 02, 03, 04, 05 November (Completed and Approved attendances)
-  const pastDays = ["2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05"];
+  // Past days: 09, 10 November (Completed and Approved attendances)
+  const pastDays = ["2026-11-09", "2026-11-10"];
   for (const dateStr of pastDays) {
     const wDate = new Date(`${dateStr}T00:00:00.000Z`);
     const shiftsOfDay = shiftRecords.filter((s) => s.workDate.getTime() === wDate.getTime());
@@ -510,6 +513,55 @@ async function main() {
           recordedById: namLe.userId,
         },
       ],
+    });
+
+    // Tạo biên bản bàn giao ca (Shift Handover) chuẩn cho Ca Sáng ngày hôm nay
+    await prisma.shiftHandover.create({
+      data: {
+        shiftId: todaySang.id,
+        handoverEmployeeId: namLe.id,
+        receivingEmployeeId: lanPham.id,
+        reviewerUserId: managerUser.id,
+        status: HandoverStatus.CONFIRMED,
+        submittedAt: new Date(`${todayStr}T12:02:00.000+07:00`),
+        confirmedAt: new Date(`${todayStr}T12:05:00.000+07:00`),
+        openingCashVnd: 1000000n,
+        cashSalesVnd: 3250000n,
+        cashExpensesVnd: 150000n,
+        expectedClosingCashVnd: 4100000n,
+        actualClosingCashVnd: 4100000n,
+        cashDifferenceVnd: 0n,
+        cardSalesVnd: 2100000n,
+        qrWalletSalesVnd: 1850000n,
+        posTotalSalesVnd: 7200000n,
+        stockReport: [
+          { code: "CF", name: "Cà phê hạt Robusta & Arabica", unit: "kg", quantity: 5.2, status: "SUFFICIENT" },
+          { code: "MILK_FRESH", name: "Sữa tươi Barista", unit: "hộp 1L", quantity: 8, status: "SUFFICIENT" },
+          { code: "MILK_CONDENSED", name: "Sữa đặc Ngôi sao", unit: "lon", quantity: 12, status: "SUFFICIENT" },
+          { code: "TEA", name: "Trà lài & Oolong", unit: "gói", quantity: 3, status: "SUFFICIENT" },
+          { code: "ICE", name: "Đá viên bi", unit: "bao", quantity: 4, status: "SUFFICIENT" },
+          { code: "CUPS", name: "Ly giấy & Ly nhựa 500ml", unit: "cây", quantity: 6, status: "SUFFICIENT" },
+        ],
+        equipmentReport: [
+          { code: "ESPRESSO", name: "Máy pha Nuova Simonelli Appia II", condition: "GOOD", note: "Áp suất 9 bar chuẩn" },
+          { code: "GRINDER", name: "Máy xay Fiorenzato F64E", condition: "GOOD", note: "Độ mịn số 3.5 chuẩn" },
+          { code: "POS", name: "Máy POS cảm ứng & máy in bill", condition: "GOOD", note: "Còn 2 cuộn giấy in bill" },
+          { code: "FRIDGE", name: "Tủ lạnh mát trưng bày sữa/trái cây", condition: "GOOD", note: "Nhiệt độ 4°C" },
+        ],
+        cleanlinessReport: [
+          { area: "Khu vực bàn học tầng 1 & lầu", isClean: true },
+          { area: "Ghế ngồi & ổ cắm điện học bài", isClean: true },
+          { area: "Quầy pha chế & bồn rửa ly", isClean: true },
+          { area: "Nhà vệ sinh khách & nhân viên", isClean: true },
+          { area: "Thùng rác & khu vực để xe", isClean: true },
+        ],
+        customerNotes: "Khách bàn 04 quên sổ tay màu xanh lá, đã cất vào ngăn kéo quầy thu ngân.",
+        pendingTasks: [
+          { title: "Nhận hàng sữa tươi chiều", description: "Nhà cung cấp giao 2 thùng sữa tươi lúc 14:30", priority: "HIGH", status: "PENDING" },
+        ],
+        handoverNotes: "Ca sáng đông khách sinh viên học bài, quầy pha chế vận hành ổn định.",
+        reviewNotes: "Quản lý đã kiểm két lúc 12:05, đủ 4.100.000đ tiền mặt, phiếu bàn giao hợp lệ.",
+      },
     });
   }
 

@@ -73,6 +73,7 @@ export interface CalculateAttendanceTimesInput {
   scheduledMinutes?: number;
   shiftEnd?: Date | null;
   currentTime?: Date;
+  missingClockOutGraceMinutes?: number;
 }
 
 export interface AttendanceCalculationResult {

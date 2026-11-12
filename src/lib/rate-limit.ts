@@ -88,3 +88,8 @@ export const calculationRateLimiter = new MemoryRateLimiter({
   windowMs: 60 * 1000, // 1 minute
   maxLimit: 15, // 15 calculations / min
 });
+
+export const registrationRateLimiter = new MemoryRateLimiter({
+  windowMs: 60 * 1000, // 1 minute
+  maxLimit: 30, // 30 registration checks / submits per min per IP
+});

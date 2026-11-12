@@ -40,7 +40,6 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
-  output: "standalone",
   reactStrictMode: true,
   poweredByHeader: false,
   typescript: {
@@ -48,6 +47,15 @@ const nextConfig: NextConfig = {
   },
   eslint: {
     ignoreDuringBuilds: true,
+  },
+  async redirects() {
+    return [
+      {
+        source: "/kiosk",
+        destination: "/attendance/kiosk",
+        permanent: true,
+      },
+    ];
   },
   async headers() {
     return [

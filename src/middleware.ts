@@ -10,8 +10,10 @@ const MANAGEMENT_PREFIXES = [
   "/availability",
   "/requests",
   "/attendance",
+  "/handovers",
   "/payroll",
   "/reports",
+  "/audit",
   "/settings",
   "/kiosk",
 ];
@@ -46,6 +48,14 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     return NextResponse.next();
   }
 
+  // Allow public schedule registration via QR code without requiring user login
+  if (
+    pathname === "/register-schedule" ||
+    pathname.startsWith("/register-schedule/")
+  ) {
+    return NextResponse.next();
+  }
+
   const isManagementRoute = MANAGEMENT_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
@@ -55,7 +65,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   if (isManagementRoute || isEmployeeRoute) {
     if (!session) {
       const loginUrl = new URL("/login", request.url);
-      loginUrl.searchParams.set("from", pathname);
+      const returnTo = `${request.nextUrl.pathname}${request.nextUrl.search}`;
+      loginUrl.searchParams.set("from", returnTo);
       return NextResponse.redirect(loginUrl);
     }
 

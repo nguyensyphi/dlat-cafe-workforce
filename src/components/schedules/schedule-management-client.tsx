@@ -7,9 +7,12 @@ import {
   ArrowLeft,
   ArrowRight,
   Calendar,
+  Download,
   History,
+  Image as ImageIcon,
   Lock,
   Plus,
+  QrCode,
   RefreshCw,
   Send,
   Sparkles,
@@ -17,6 +20,7 @@ import {
   Unlock,
   UserCheck,
   UserPlus,
+  Users,
 } from "lucide-react";
 import type { SessionUser } from "@/lib/jwt";
 import { formatDateVN } from "@/lib/date";
@@ -48,8 +52,14 @@ import type {
   ScheduleShiftDto,
 } from "@/modules/schedules/schedule.types";
 import type { RecommendationResult } from "@/modules/auto-scheduling/scheduling-engine.types";
+import type {
+  AvailabilityHeatmapSlotDto,
+  WeekAvailabilityOverviewDto,
+} from "@/modules/availability/availability.types";
 import { formatVnd } from "@/lib/currency";
 import { SCHEDULE_STATUS_LABELS } from "@/modules/schedules/schedule.service";
+import { ScheduleQrModal } from "./schedule-qr-modal";
+import { RegistrationProgressDrawer } from "./registration-progress-drawer";
 
 type ViewMode = "WEEK" | "DAY" | "EMPLOYEE" | "SHIFT";
 
@@ -127,6 +137,30 @@ export function ScheduleManagementClient({
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+
+  // QR Registration & Availability Progress
+  const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [progressDrawerOpen, setProgressDrawerOpen] = useState(false);
+  const [overviewData, setOverviewData] = useState<WeekAvailabilityOverviewDto | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    async function loadOverview() {
+      try {
+        const res = await fetch(`/api/availability/overview?week=${currentWeek}`);
+        const json = await res.json();
+        if (active && json.ok) {
+          setOverviewData(json.data);
+        }
+      } catch {
+        // ignore
+      }
+    }
+    loadOverview();
+    return () => {
+      active = false;
+    };
+  }, [currentWeek]);
 
   const isEditable =
     schedule &&
@@ -350,6 +384,160 @@ export function ScheduleManagementClient({
     }
   }
 
+  // Generate and download a schedule image for Zalo / Staff Groups
+  const handleExportScheduleImage = () => {
+    if (!schedule) return;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 1400;
+    canvas.height = 920;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    // Background
+    const grad = ctx.createLinearGradient(0, 0, 0, 920);
+    grad.addColorStop(0, "#064e3b");
+    grad.addColorStop(0.18, "#047857");
+    grad.addColorStop(0.19, "#f8fafc");
+    grad.addColorStop(1, "#f1f5f9");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 1400, 920);
+
+    // Header Title
+    ctx.fillStyle = "#a7f3d0";
+    ctx.font = "bold 20px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText("☕ D'LAT CAFE & BISTRO", 50, 48);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 32px sans-serif";
+    ctx.fillText("LỊCH LÀM VIỆC TUẦN", 50, 92);
+
+    ctx.fillStyle = "#d1fae5";
+    ctx.font = "600 18px sans-serif";
+    ctx.fillText(
+      `Từ ${formatDateVN(currentWeek)} đến ${formatDateVN(addDaysToDateString(currentWeek, 6))}`,
+      50,
+      128,
+    );
+
+    // Status Badge
+    ctx.fillStyle = schedule.status === "PUBLISHED" ? "#10b981" : "#f59e0b";
+    ctx.roundRect(1180, 50, 170, 40, 10);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 16px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(
+      schedule.status === "PUBLISHED" ? "✓ ĐÃ CÔNG BỐ" : "BẢN NHÁP",
+      1265,
+      76,
+    );
+
+    // 7 Columns
+    const weekDates = listWeekDates(currentWeek);
+    const colWidth = 175;
+    const startX = 50;
+    const startY = 190;
+
+    weekDates.forEach((dateStr, i) => {
+      const colX = startX + i * (colWidth + 12);
+      const dayDate = new Date(`${dateStr}T00:00:00.000Z`);
+      const dayName = DAY_LABELS[dayDate.getUTCDay()] || "";
+      const isWeekend = dayName.includes("Bảy") || dayName.includes("Chủ nhật");
+
+      // Column card
+      ctx.fillStyle = isWeekend ? "#fffbeb" : "#ffffff";
+      ctx.roundRect(colX, startY, colWidth, 660, 12);
+      ctx.fill();
+      ctx.strokeStyle = isWeekend ? "#fde68a" : "#e2e8f0";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Day header
+      ctx.fillStyle = isWeekend ? "#b45309" : "#0f172a";
+      ctx.font = "bold 16px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(dayName, colX + colWidth / 2, startY + 30);
+
+      ctx.fillStyle = "#64748b";
+      ctx.font = "13px sans-serif";
+      ctx.fillText(
+        `${dateStr.slice(8, 10)}/${dateStr.slice(5, 7)}`,
+        colX + colWidth / 2,
+        startY + 50,
+      );
+
+      // Separator
+      ctx.strokeStyle = isWeekend ? "#fef3c7" : "#f1f5f9";
+      ctx.beginPath();
+      ctx.moveTo(colX + 10, startY + 62);
+      ctx.lineTo(colX + colWidth - 10, startY + 62);
+      ctx.stroke();
+
+      // Shifts of day
+      const dayShifts = schedule.shifts.filter((s) => s.workDate === dateStr);
+      let shiftY = startY + 75;
+
+      dayShifts.forEach((shift) => {
+        ctx.fillStyle = "#f8fafc";
+        ctx.roundRect(colX + 8, shiftY, colWidth - 16, 175, 8);
+        ctx.fill();
+        ctx.strokeStyle = "#e2e8f0";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        ctx.fillStyle = "#0f172a";
+        ctx.font = "bold 13px sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText(shift.name, colX + 15, shiftY + 20);
+
+        ctx.fillStyle = "#64748b";
+        ctx.font = "11px monospace";
+        ctx.fillText(`${shift.startTime}-${shift.endTime}`, colX + 15, shiftY + 36);
+
+        let assignY = shiftY + 52;
+        if (shift.assignments.length === 0) {
+          ctx.fillStyle = "#94a3b8";
+          ctx.font = "italic 11px sans-serif";
+          ctx.fillText("Chưa xếp", colX + 15, assignY + 14);
+        } else {
+          shift.assignments.forEach((a) => {
+            ctx.fillStyle = "#ecfdf5";
+            ctx.roundRect(colX + 12, assignY, colWidth - 24, 26, 6);
+            ctx.fill();
+            ctx.strokeStyle = "#a7f3d0";
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            ctx.fillStyle = "#065f46";
+            ctx.font = "bold 11px sans-serif";
+            ctx.fillText(a.employeeName, colX + 18, assignY + 17);
+
+            assignY += 30;
+          });
+        }
+
+        shiftY += 190;
+      });
+    });
+
+    // Footer
+    ctx.fillStyle = "#64748b";
+    ctx.font = "13px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(
+      "D'lat Cafe Workforce Management • Chúc toàn thể anh chị em tuần mới làm việc vui vẻ & thuận lợi!",
+      700,
+      885,
+    );
+
+    const link = document.createElement("a");
+    link.download = `LichLamViec-Dlat-${currentWeek}.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  };
+
   async function handleCreateShift() {
     if (!schedule) return;
     setActionLoading(true);
@@ -457,6 +645,48 @@ export function ScheduleManagementClient({
             >
               <ArrowRight className="h-4 w-4" />
             </Button>
+          </div>
+
+          {/* QR Registration & Progress Buttons */}
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setQrModalOpen(true)}
+              className="border-emerald-600 bg-emerald-50/70 text-emerald-800 hover:bg-emerald-100 font-semibold gap-1.5"
+            >
+              <QrCode className="h-3.5 w-3.5 text-emerald-700" />
+              <span>Mã QR Đăng Ký</span>
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setProgressDrawerOpen(true)}
+              className="border-slate-300 text-slate-700 hover:bg-slate-100 font-medium gap-1.5"
+              title="Xem danh sách nhân viên đã nộp / chưa nộp"
+            >
+              <Users className="h-3.5 w-3.5 text-slate-600" />
+              <span>
+                Đăng ký: {overviewData?.submittedEmployees ?? 0}/{overviewData?.totalEmployees ?? 0}
+              </span>
+            </Button>
+
+            {schedule && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleExportScheduleImage}
+                className="border-slate-300 text-slate-700 hover:bg-slate-100 font-medium gap-1.5"
+                title="Tải ảnh toàn bộ lịch tuần để gửi vào nhóm Zalo nhân viên"
+              >
+                <Download className="h-3.5 w-3.5 text-slate-600" />
+                <span className="hidden md:inline">Xuất ảnh Zalo</span>
+              </Button>
+            )}
           </div>
 
           {schedule ? (
@@ -706,16 +936,24 @@ export function ScheduleManagementClient({
                           Không có ca làm
                         </p>
                       ) : (
-                        shiftsOfDay.map((shift) => (
-                          <ShiftCardCompact
-                            key={shift.id}
-                            shift={shift}
-                            isEditable={Boolean(isEditable)}
-                            onAssign={() => openAssignModal(shift)}
-                            onRemoveAssignment={handleRemoveAssignment}
-                            onDeleteShift={() => handleDeleteShift(shift.id)}
-                          />
-                        ))
+                        shiftsOfDay.map((shift) => {
+                          const heatmapSlot = overviewData?.heatmap?.find(
+                            (h) =>
+                              h.workDate === shift.workDate &&
+                              h.templateId === shift.templateId,
+                          );
+                          return (
+                            <ShiftCardCompact
+                              key={shift.id}
+                              shift={shift}
+                              heatmapSlot={heatmapSlot}
+                              isEditable={Boolean(isEditable)}
+                              onAssign={() => openAssignModal(shift)}
+                              onRemoveAssignment={handleRemoveAssignment}
+                              onDeleteShift={() => handleDeleteShift(shift.id)}
+                            />
+                          );
+                        })
                       )}
                     </div>
                   </div>
@@ -1409,6 +1647,24 @@ export function ScheduleManagementClient({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* MODAL 7: QR Code Registration Modal */}
+      <ScheduleQrModal
+        open={qrModalOpen}
+        onOpenChange={setQrModalOpen}
+        weekStart={currentWeek}
+        deadlineFormatted={
+          overviewData?.deadlineAt ? formatDateVN(overviewData.deadlineAt) : null
+        }
+      />
+
+      {/* DRAWER 8: Registration Progress Drawer */}
+      <RegistrationProgressDrawer
+        open={progressDrawerOpen}
+        onOpenChange={setProgressDrawerOpen}
+        weekStart={currentWeek}
+        onOpenQrModal={() => setQrModalOpen(true)}
+      />
     </div>
   );
 }
@@ -1416,12 +1672,14 @@ export function ScheduleManagementClient({
 // Compact shift card for 7-day grid
 function ShiftCardCompact({
   shift,
+  heatmapSlot,
   isEditable,
   onAssign,
   onRemoveAssignment,
   onDeleteShift,
 }: {
   shift: ScheduleShiftDto;
+  heatmapSlot?: AvailabilityHeatmapSlotDto;
   isEditable: boolean;
   onAssign: () => void;
   onRemoveAssignment: (id: string) => void;
@@ -1447,6 +1705,39 @@ function ShiftCardCompact({
           {shift.assignedCount}/{shift.requiredStaff}
         </Badge>
       </div>
+
+      {/* AVAILABILITY HEATMAP BADGE */}
+      {heatmapSlot && (
+        <div
+          className={`flex items-center justify-between rounded px-2 py-0.5 text-[10px] font-semibold border ${
+            heatmapSlot.totalAvailable < shift.requiredStaff
+              ? "bg-rose-50 text-rose-700 border-rose-200"
+              : heatmapSlot.totalAvailable === shift.requiredStaff
+              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+              : "bg-amber-50 text-amber-800 border-amber-200"
+          }`}
+          title={
+            heatmapSlot.employeeNames.length > 0
+              ? `Nhân sự đăng ký: ${heatmapSlot.employeeNames.join(", ")}`
+              : "Chưa có nhân sự nào đăng ký ca này"
+          }
+        >
+          <span className="flex items-center gap-1">
+            <Users className="h-3 w-3" />
+            <span>{heatmapSlot.totalAvailable} rảnh</span>
+            {heatmapSlot.preferredCount > 0 && (
+              <span className="text-[9px] text-amber-600 font-bold">
+                ({heatmapSlot.preferredCount}★)
+              </span>
+            )}
+          </span>
+          <span className="opacity-75 font-normal">
+            {heatmapSlot.totalAvailable < shift.requiredStaff
+              ? `Thiếu ${shift.requiredStaff - heatmapSlot.totalAvailable}`
+              : `Cần ${shift.requiredStaff}`}
+          </span>
+        </div>
+      )}
 
       <div className="space-y-1">
         {shift.assignments.map((a) => (

@@ -1,10 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { DollarSign, FileText, Lock } from "lucide-react";
 import { formatDateVN } from "@/lib/date";
 import { formatVnd } from "@/lib/currency";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PayslipModal, type PayslipData } from "@/components/payroll/payslip-modal";
 
 interface MyPayrollItem {
   id: string;
@@ -12,6 +15,9 @@ interface MyPayrollItem {
   periodStart: string;
   periodEnd: string;
   paymentDate: string | null;
+  employeeCode: string;
+  fullName: string;
+  positionName: string;
   paidHours: number;
   hourlyRateVND: bigint;
   basePayVND: bigint;
@@ -20,6 +26,7 @@ interface MyPayrollItem {
   bonusesVND: bigint;
   deductionsVND: bigint;
   adjustmentsVND: bigint;
+  adjustmentReason?: string | null;
   totalPayVND: bigint;
   status: string;
 }
@@ -29,7 +36,33 @@ export function EmployeePayrollClient({
 }: {
   items: MyPayrollItem[];
 }) {
+  const [payslipModalOpen, setPayslipModalOpen] = useState(false);
+  const [selectedPayslip, setSelectedPayslip] = useState<PayslipData | null>(null);
+
   const totalEarnedVND = items.reduce((acc, cur) => acc + cur.totalPayVND, 0n);
+
+  const handleOpenPayslip = (slip: MyPayrollItem) => {
+    setSelectedPayslip({
+      periodName: slip.periodName,
+      periodStart: formatDateVN(slip.periodStart),
+      periodEnd: formatDateVN(slip.periodEnd),
+      paymentDate: slip.paymentDate ? formatDateVN(slip.paymentDate) : null,
+      employeeCode: slip.employeeCode,
+      fullName: slip.fullName,
+      positionName: slip.positionName,
+      workedHours: slip.paidHours,
+      hourlyRateVND: slip.hourlyRateVND,
+      basePayVND: slip.basePayVND,
+      overtimePayVND: slip.overtimePayVND,
+      allowancesVND: slip.allowancesVND,
+      bonusesVND: slip.bonusesVND,
+      deductionsVND: slip.deductionsVND,
+      adjustmentsVND: slip.adjustmentsVND,
+      adjustmentReason: slip.adjustmentReason,
+      totalPayVND: slip.totalPayVND,
+    });
+    setPayslipModalOpen(true);
+  };
 
   return (
     <div className="space-y-6">
@@ -172,12 +205,31 @@ export function EmployeePayrollClient({
                       <span className="font-medium text-foreground">{formatVnd(slip.adjustmentsVND)}</span>
                     </div>
                   </div>
+
+                  <div className="flex justify-end pt-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 text-xs border-primary/40 text-primary hover:bg-primary/5"
+                      onClick={() => handleOpenPayslip(slip)}
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                      <span>Xem & Tải phiếu lương chi tiết</span>
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Payslip Detail & Zalo Image Modal */}
+      <PayslipModal
+        open={payslipModalOpen}
+        onOpenChange={setPayslipModalOpen}
+        data={selectedPayslip}
+      />
     </div>
   );
 }

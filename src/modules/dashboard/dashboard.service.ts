@@ -36,11 +36,23 @@ export interface ManagementDashboardMetrics {
   }>;
 }
 
+let cachedMetrics: ManagementDashboardMetrics | null = null;
+let lastCacheTimestamp = 0;
+const CACHE_TTL_MS = 15_000; // 15s TTL for dashboard metrics
+
+export function invalidateDashboardCache() {
+  cachedMetrics = null;
+}
+
 export const dashboardService = {
   async getManagementMetrics(
     actor: SessionUser,
   ): Promise<ManagementDashboardMetrics> {
     assertPermission(actor.role, "dashboard:manage");
+
+    if (cachedMetrics && Date.now() - lastCacheTimestamp < CACHE_TTL_MS) {
+      return cachedMetrics;
+    }
 
     const now = new Date();
     const todayIso = formatInTimeZone(now, HO_CHI_MINH_TZ, "yyyy-MM-dd");
@@ -159,7 +171,7 @@ export const dashboardService = {
       }
     }
 
-    return {
+    const result: ManagementDashboardMetrics = {
       activeEmployees,
       inactiveEmployees,
       workingTodayCount: workingEmployeeSet.size,
@@ -186,6 +198,10 @@ export const dashboardService = {
         createdAt: l.createdAt.toISOString(),
       })),
     };
+
+    cachedMetrics = result;
+    lastCacheTimestamp = Date.now();
+    return result;
   },
 };
 

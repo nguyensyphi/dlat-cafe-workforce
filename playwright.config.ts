@@ -7,7 +7,7 @@ export default defineConfig({
   retries: 0,
   reporter: "list",
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL: "http://localhost:3005",
     trace: "on-first-retry",
   },
   projects: [
@@ -16,13 +16,5 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
   ],
-  webServer: {
-    command: process.env.PLAYWRIGHT_USE_START
-      ? "npm.cmd run start"
-      : "npm.cmd run dev",
-    url: "http://localhost:3000/login",
-    reuseExistingServer: true,
-    timeout: 90000,
-  },
 });
 

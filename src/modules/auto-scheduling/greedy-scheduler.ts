@@ -78,10 +78,12 @@ export class GreedySchedulerEngine implements SchedulingEngine {
       pinnedSet.add(`${shift.id}_${emp.id}`);
     }
 
-    // Availability fast lookup
+    // Availability fast lookup and track actively registered employees
     const availMap = new Map<string, "AVAILABLE" | "PREFERRED" | "UNAVAILABLE">();
+    const submittedEmployees = new Set<string>();
     for (const av of availabilities) {
       availMap.set(`${av.employeeId}_${av.workDate}_${av.templateId ?? ""}`, av.preference);
+      submittedEmployees.add(av.employeeId);
     }
 
     // Sort shifts:
@@ -239,10 +241,15 @@ export class GreedySchedulerEngine implements SchedulingEngine {
           let score = 100;
           const explanations: string[] = [];
 
-          // 1. Availability preference
+          // 1. Availability preference & registration incentive
+          const hasSubmitted = submittedEmployees.has(emp.id);
           if (pref === "PREFERRED") {
             score += 40;
             explanations.push("Ưu tiên theo nguyện vọng");
+          } else if (!hasSubmitted) {
+            // Deprioritize unregistered staff so registered employees are chosen first
+            score -= 30;
+            explanations.push("Chưa nộp đăng ký ca (ưu tiên thấp)");
           }
 
           // 2. Workload balance (encourage reaching weeklyTargetHours)

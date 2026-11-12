@@ -71,6 +71,55 @@ enum SwapStatus {
   CANCELLED
 }
 
+enum AttendanceCompletionStatus {
+  IN_PROGRESS
+  COMPLETED
+  INCOMPLETE
+}
+
+enum AttendanceAnomalyStatus {
+  CLEAN
+  LATE
+  EARLY_LEAVE
+  MISSING_CLOCK_OUT
+  OUT_OF_SCHEDULE
+  NO_SHOW
+}
+
+enum AttendanceApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  ADJUSTED
+}
+
+enum AttendancePayrollStatus {
+  UNPROCESSED
+  INCLUDED
+  LOCKED
+}
+
+enum HandoverStatus {
+  PENDING
+  SUBMITTED
+  CONFIRMED
+  DISCREPANCY
+}
+
+enum EquipmentCondition {
+  GOOD
+  NEEDS_CHECK
+  DAMAGED
+}
+
+enum StockCondition {
+  SUFFICIENT
+  RUNNING_LOW
+  OUT_OF_STOCK
+  DAMAGED
+  EXPIRED
+}
+
 enum AttendanceSource {
   QR
   MANUAL
@@ -125,6 +174,9 @@ model User {
   notifications            Notification[]
   auditLogs                AuditLog[]
   updatedSettings          SystemSetting[]     @relation("SettingUpdater")
+  employeeSessions         EmployeeSession[]
+  reviewedAdjustments      AttendanceAdjustmentRequest[] @relation("AdjustmentReviewer")
+  reviewedHandovers        ShiftHandover[]               @relation("HandoverReviewer")
 
   @@index([role, isActive])
   @@map("users")
@@ -185,6 +237,9 @@ model Employee {
   usedQrSessions    AttendanceSession[] @relation("QrSessionUser")
   attendances       Attendance[]
   payrollItems      PayrollItem[]
+  givenHandovers    ShiftHandover[]               @relation("HandoverGiver")
+  receivedHandovers ShiftHandover[]               @relation("HandoverReceiver")
+  adjustmentRequests AttendanceAdjustmentRequest[]
 
   @@index([status])
   @@index([primaryPositionId])
@@ -342,6 +397,7 @@ model Shift {
   leaveRequests        LeaveRequest[]
   swapRequests         SwapRequest[]
   attendances          Attendance[]
+  handovers            ShiftHandover[]
 
   @@index([scheduleId, workDate])
   @@index([workDate, startAt])
@@ -477,51 +533,63 @@ model AttendanceSession {
 }
 
 model Attendance {
-  id                String           @id @default(uuid()) @db.Uuid
-  employeeId        String           @map("employee_id") @db.Uuid
-  shiftId           String?          @map("shift_id") @db.Uuid
-  workDate          DateTime         @map("work_date") @db.Date
-  clockIn           DateTime?        @map("clock_in") @db.Timestamptz(6)
-  clockOut          DateTime?        @map("clock_out") @db.Timestamptz(6)
-  breakMinutes      Int              @default(0) @map("break_minutes")
-  scheduledMinutes  Int              @default(0) @map("scheduled_minutes")
-  workedMinutes     Int              @default(0) @map("worked_minutes")
-  approvedMinutes   Int?             @map("approved_minutes")
-  paidMinutes       Int?             @map("paid_minutes")
-  lateMinutes       Int              @default(0) @map("late_minutes")
-  earlyLeaveMinutes Int              @default(0) @map("early_leave_minutes")
-  overtimeMinutes   Int              @default(0) @map("overtime_minutes")
-  isMissingClockOut Boolean          @default(false) @map("is_missing_clock_out")
-  source            AttendanceSource @default(QR)
-  status            AttendanceStatus @default(PENDING)
-  approvedById      String?          @map("approved_by") @db.Uuid
-  approvedAt        DateTime?        @map("approved_at") @db.Timestamptz(6)
-  adjustmentReason  String?          @map("adjustment_reason") @db.Text
-  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                String                     @id @default(uuid()) @db.Uuid
+  version           Int                        @default(1)
+  employeeId        String                     @map("employee_id") @db.Uuid
+  shiftId           String?                    @map("shift_id") @db.Uuid
+  workDate          DateTime                   @map("work_date") @db.Date
+  clockIn           DateTime?                  @map("clock_in") @db.Timestamptz(6)
+  clockOut          DateTime?                  @map("clock_out") @db.Timestamptz(6)
+  breakMinutes      Int                        @default(0) @map("break_minutes")
+  scheduledMinutes  Int                        @default(0) @map("scheduled_minutes")
+  workedMinutes     Int                        @default(0) @map("worked_minutes")
+  approvedMinutes   Int?                       @map("approved_minutes")
+  paidMinutes       Int?                       @map("paid_minutes")
+  lateMinutes       Int                        @default(0) @map("late_minutes")
+  actualLateMinutes Int                        @default(0) @map("actual_late_minutes")
+  penaltyLateMinutes Int                       @default(0) @map("penalty_late_minutes")
+  earlyLeaveMinutes Int                        @default(0) @map("early_leave_minutes")
+  overtimeMinutes   Int                        @default(0) @map("overtime_minutes")
+  isMissingClockOut Boolean                    @default(false) @map("is_missing_clock_out")
+  source            AttendanceSource           @default(QR)
+  status            AttendanceStatus           @default(PENDING)
+  completionStatus  AttendanceCompletionStatus @default(IN_PROGRESS) @map("completion_status")
+  anomalyStatus     AttendanceAnomalyStatus    @default(CLEAN) @map("anomaly_status")
+  approvalStatus    AttendanceApprovalStatus   @default(PENDING) @map("approval_status")
+  payrollStatus     AttendancePayrollStatus    @default(UNPROCESSED) @map("payroll_status")
+  approvedById      String?                    @map("approved_by") @db.Uuid
+  approvedAt        DateTime?                  @map("approved_at") @db.Timestamptz(6)
+  adjustmentReason  String?                    @map("adjustment_reason") @db.Text
+  createdAt         DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  employee   Employee          @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  shift      Shift?            @relation(fields: [shiftId], references: [id], onDelete: Restrict)
-  approvedBy User?             @relation("AttendanceApprover", fields: [approvedById], references: [id], onDelete: SetNull)
-  events     AttendanceEvent[]
+  employee           Employee                      @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  shift              Shift?                        @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  approvedBy         User?                         @relation("AttendanceApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  events             AttendanceEvent[]
+  adjustmentRequests AttendanceAdjustmentRequest[]
 
   @@unique([employeeId, shiftId])
   @@index([employeeId, workDate])
   @@index([workDate, status])
+  @@index([workDate, completionStatus])
+  @@index([workDate, anomalyStatus])
   @@map("attendance")
 }
 
 model AttendanceEvent {
-  id           String              @id @default(uuid()) @db.Uuid
-  attendanceId String              @map("attendance_id") @db.Uuid
-  sessionId    String?             @map("session_id") @db.Uuid
-  eventType    AttendanceEventType @map("event_type")
-  occurredAt   DateTime            @map("occurred_at") @db.Timestamptz(6)
-  source       AttendanceSource    @default(QR)
-  recordedById String              @map("recorded_by") @db.Uuid
-  note         String?             @db.Text
-  metadata     Json?               @db.JsonB
-  createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  id             String              @id @default(uuid()) @db.Uuid
+  attendanceId   String              @map("attendance_id") @db.Uuid
+  sessionId      String?             @map("session_id") @db.Uuid
+  idempotencyKey String?             @unique @map("idempotency_key") @db.VarChar(128)
+  deviceId       String?             @map("device_id") @db.VarChar(100)
+  eventType      AttendanceEventType @map("event_type")
+  occurredAt     DateTime            @map("occurred_at") @db.Timestamptz(6)
+  source         AttendanceSource    @default(QR)
+  recordedById   String              @map("recorded_by") @db.Uuid
+  note           String?             @db.Text
+  metadata       Json?               @db.JsonB
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
 
   attendance Attendance         @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
   session    AttendanceSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
@@ -635,4 +703,103 @@ model SystemSetting {
 
   @@map("system_settings")
 }
+
+model EmployeeSession {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  deviceId  String    @map("device_id") @db.VarChar(128)
+  ipAddress String?   @map("ip_address") @db.VarChar(64)
+  userAgent String?   @map("user_agent") @db.Text
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, deviceId])
+  @@index([revokedAt])
+  @@map("employee_sessions")
+}
+
+model KioskSession {
+  id        String    @id @default(uuid()) @db.Uuid
+  kioskCode String    @default("DLAT_MAIN_KIOSK") @map("kiosk_code") @db.VarChar(50)
+  tokenHash String    @unique @map("token_hash") @db.Text
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tokenHash, expiresAt])
+  @@map("kiosk_sessions")
+}
+
+model AttendanceAdjustmentRequest {
+  id               String                   @id @default(uuid()) @db.Uuid
+  attendanceId     String                   @map("attendance_id") @db.Uuid
+  employeeId       String                   @map("employee_id") @db.Uuid
+  requestedType    String                   @map("requested_type") @db.VarChar(60)
+  proposedClockIn  DateTime?                @map("proposed_clock_in") @db.Timestamptz(6)
+  proposedClockOut DateTime?                @map("proposed_clock_out") @db.Timestamptz(6)
+  proposedMinutes  Int?                     @map("proposed_minutes")
+  reason           String                   @db.Text
+  status           AttendanceApprovalStatus @default(PENDING)
+  reviewedById     String?                  @map("reviewed_by") @db.Uuid
+  reviewedAt       DateTime?                @map("reviewed_at") @db.Timestamptz(6)
+  reviewNotes      String?                  @map("review_notes") @db.Text
+  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  attendance Attendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+  employee   Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  reviewedBy User?      @relation("AdjustmentReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([attendanceId])
+  @@index([employeeId, status])
+  @@map("attendance_adjustment_requests")
+}
+
+model ShiftHandover {
+  id                     String         @id @default(uuid()) @db.Uuid
+  shiftId                String         @map("shift_id") @db.Uuid
+  handoverEmployeeId     String         @map("handover_employee_id") @db.Uuid
+  receivingEmployeeId    String?        @map("receiving_employee_id") @db.Uuid
+  reviewerUserId         String?        @map("reviewer_user_id") @db.Uuid
+  status                 HandoverStatus @default(PENDING)
+
+  submittedAt            DateTime?      @map("submitted_at") @db.Timestamptz(6)
+  confirmedAt            DateTime?      @map("confirmed_at") @db.Timestamptz(6)
+
+  openingCashVnd         BigInt         @default(0) @map("opening_cash_vnd")
+  cashSalesVnd           BigInt         @default(0) @map("cash_sales_vnd")
+  cashExpensesVnd        BigInt         @default(0) @map("cash_expenses_vnd")
+  expectedClosingCashVnd BigInt         @default(0) @map("expected_closing_cash_vnd")
+  actualClosingCashVnd   BigInt         @default(0) @map("actual_closing_cash_vnd")
+  cashDifferenceVnd      BigInt         @default(0) @map("cash_difference_vnd")
+  cardSalesVnd           BigInt         @default(0) @map("card_sales_vnd")
+  qrWalletSalesVnd       BigInt         @default(0) @map("qr_wallet_sales_vnd")
+  posTotalSalesVnd       BigInt         @default(0) @map("pos_total_sales_vnd")
+  cashDiscrepancyReason  String?        @map("cash_discrepancy_reason") @db.Text
+
+  stockReport            Json?          @map("stock_report") @db.JsonB
+  equipmentReport        Json?          @map("equipment_report") @db.JsonB
+  cleanlinessReport      Json?          @map("cleanliness_report") @db.JsonB
+  customerNotes          String?        @map("customer_notes") @db.Text
+  pendingTasks           Json?          @map("pending_tasks") @db.JsonB
+
+  handoverNotes          String?        @map("handover_notes") @db.Text
+  reviewNotes            String?        @map("review_notes") @db.Text
+
+  createdAt              DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  shift             Shift     @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  handoverEmployee  Employee  @relation("HandoverGiver", fields: [handoverEmployeeId], references: [id], onDelete: Restrict)
+  receivingEmployee Employee? @relation("HandoverReceiver", fields: [receivingEmployeeId], references: [id], onDelete: SetNull)
+  reviewerUser      User?     @relation("HandoverReviewer", fields: [reviewerUserId], references: [id], onDelete: SetNull)
+
+  @@index([shiftId])
+  @@index([status])
+  @@map("shift_handovers")
+}
+
 

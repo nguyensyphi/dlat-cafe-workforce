@@ -44,6 +44,15 @@ export interface AvailabilityOverviewItemDto {
   updatedAt: string | null;
 }
 
+export interface AvailabilityHeatmapSlotDto {
+  workDate: string;
+  templateId: string;
+  availableCount: number;
+  preferredCount: number;
+  totalAvailable: number;
+  employeeNames: string[];
+}
+
 export interface WeekAvailabilityOverviewDto {
   weekStart: string;
   weekEnd: string;
@@ -52,5 +61,6 @@ export interface WeekAvailabilityOverviewDto {
   totalEmployees: number;
   submittedEmployees: number;
   employees: AvailabilityOverviewItemDto[];
+  heatmap?: AvailabilityHeatmapSlotDto[];
 }
 

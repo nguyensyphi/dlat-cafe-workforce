@@ -2,8 +2,33 @@ import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { AppConfirmationRequiredError, AppError } from "@/lib/permissions";
 
+// Polyfill BigInt.prototype.toJSON for Node/Next.js JSON.stringify
+if (typeof (BigInt.prototype as unknown as { toJSON?: () => unknown }).toJSON === "undefined") {
+  Object.defineProperty(BigInt.prototype, "toJSON", {
+    value: function () {
+      const num = Number(this);
+      return Number.isSafeInteger(num) ? num : this.toString();
+    },
+    writable: true,
+    configurable: true,
+  });
+}
+
+export function safeJsonSerialize<T>(data: T): T {
+  if (data === undefined || data === null) return data;
+  return JSON.parse(
+    JSON.stringify(data, (_, v) => {
+      if (typeof v === "bigint") {
+        const num = Number(v);
+        return Number.isSafeInteger(num) ? num : v.toString();
+      }
+      return v;
+    }),
+  );
+}
+
 export function apiSuccess<T>(data: T, status = 200): NextResponse {
-  return NextResponse.json({ ok: true, data }, { status });
+  return NextResponse.json({ ok: true, data: safeJsonSerialize(data) }, { status });
 }
 
 export function apiError(

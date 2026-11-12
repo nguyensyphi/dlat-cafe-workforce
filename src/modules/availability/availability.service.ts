@@ -305,6 +305,46 @@ export const availabilityService = {
       (r) => r.submissionStatus === "SUBMITTED",
     ).length;
 
+    // Build availability heatmap per shift template and work date
+    const heatmapMap = new Map<
+      string,
+      { availableCount: number; preferredCount: number; employeeNames: string[] }
+    >();
+    const empNameMap = new Map(employees.map((e) => [e.id, e.fullName]));
+
+    for (const av of availabilities) {
+      if (!av.templateId) continue;
+      if (av.preference === "UNAVAILABLE") continue;
+
+      const dateStr = formatIsoDateOnly(av.workDate);
+      const key = `${dateStr}_${av.templateId}`;
+      const entry = heatmapMap.get(key) || {
+        availableCount: 0,
+        preferredCount: 0,
+        employeeNames: [],
+      };
+      if (av.preference === "PREFERRED") {
+        entry.preferredCount += 1;
+      } else {
+        entry.availableCount += 1;
+      }
+      const name = empNameMap.get(av.employeeId);
+      if (name) entry.employeeNames.push(name);
+      heatmapMap.set(key, entry);
+    }
+
+    const heatmap = Array.from(heatmapMap.entries()).map(([key, data]) => {
+      const [workDate, templateId] = key.split("_");
+      return {
+        workDate: workDate!,
+        templateId: templateId!,
+        availableCount: data.availableCount,
+        preferredCount: data.preferredCount,
+        totalAvailable: data.availableCount + data.preferredCount,
+        employeeNames: data.employeeNames,
+      };
+    });
+
     return {
       weekStart,
       weekEnd,
@@ -313,6 +353,7 @@ export const availabilityService = {
       totalEmployees: employees.length,
       submittedEmployees: submittedCount,
       employees: employeeRows,
+      heatmap,
     };
   },
 };
