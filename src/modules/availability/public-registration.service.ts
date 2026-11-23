@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { verifyPassword } from "@/lib/auth";
 import { formatDateTimeVN, formatIsoDateOnly, getWeekMondayDateString, todayDateStringVN } from "@/lib/date";
 import { addDaysToDateString, buildShiftInterval, listWeekDates } from "@/lib/shift-time";
 import { AppForbiddenError, AppNotFoundError, AppUnauthorizedError, AppValidationError } from "@/lib/permissions";
@@ -17,9 +18,33 @@ export function validateEmployeePin(phone: string, pinCode: string): boolean {
   return cleanPhone.endsWith(cleanPin);
 }
 
+/**
+ * Verifies an employee's shift-registration PIN.
+ * If the employee has a custom bcrypt `pinHash`, verifies strictly against it.
+ * Otherwise falls back to matching the last 4+ digits of their registered phone number.
+ */
+export async function verifyEmployeePin(
+  phone: string,
+  pinCode: string,
+  pinHash?: string | null,
+): Promise<boolean> {
+  const cleanPin = pinCode.replace(/\D/g, "");
+  if (cleanPin.length < 4) return false;
+  if (pinHash) {
+    return verifyPassword(cleanPin, pinHash);
+  }
+  return validateEmployeePin(phone, cleanPin);
+}
+
 export function isRegistrationOpen(deadline: Date | null, currentTime: Date = new Date()): boolean {
   if (!deadline) return true;
   return currentTime.getTime() <= deadline.getTime();
+}
+
+export function getDefaultRegistrationDeadline(weekStart: string): Date {
+  // Hạn chót mặc định: 19:00 tối Thứ 7 trước tuần làm việc (weekStart là Thứ Hai -> -2 ngày)
+  const priorSaturdayStr = addDaysToDateString(weekStart, -2);
+  return new Date(`${priorSaturdayStr}T19:00:00.000+07:00`);
 }
 
 export function validateRegistrationPayload(data: {
@@ -65,9 +90,8 @@ export async function getPublicScheduleRegistrationData(
     },
   });
 
-  // Calculate guaranteed deadline for upcoming week (default 23:59 Sunday prior to weekStart)
-  const priorSundayStr = addDaysToDateString(weekStart, -1);
-  const defaultDeadline = new Date(`${priorSundayStr}T23:59:59.000Z`);
+  // Hạn chót mặc định: 19:00 tối Thứ 7 trước tuần làm việc
+  const defaultDeadline = getDefaultRegistrationDeadline(weekStart);
   const effectiveDeadline = schedule?.availabilityDeadline || defaultDeadline;
   const isDeadlinePassed = !isRegistrationOpen(effectiveDeadline);
   const isScheduleLocked = schedule?.status === "PUBLISHED" || schedule?.status === "LOCKED";
@@ -115,19 +139,25 @@ export async function getPublicScheduleRegistrationData(
       templateId: string;
       preference: string;
     }>;
+    desiredShifts?: number;
     note?: string;
   } | null = null;
 
   if (employeeId && pin) {
     const emp = await prisma.employee.findUnique({
       where: { id: employeeId },
-      select: { phone: true, fullName: true },
+      select: { phone: true, pinHash: true, fullName: true },
     });
 
     if (!emp) {
       authResult = { authenticated: false, pinError: "Không tìm thấy nhân viên" };
-    } else if (!validateEmployeePin(emp.phone, pin)) {
-      authResult = { authenticated: false, pinError: "Mã PIN không đúng (phải là 4 số cuối SĐT của bạn)" };
+    } else if (!(await verifyEmployeePin(emp.phone, pin, emp.pinHash))) {
+      authResult = {
+        authenticated: false,
+        pinError: emp.pinHash
+          ? "Mã PIN không đúng (vui lòng nhập mã PIN cá nhân bạn đã thiết lập)"
+          : "Mã PIN không đúng (phải là 4 số cuối SĐT của bạn)",
+      };
     } else {
       const records = await prisma.availability.findMany({
         where: {
@@ -205,15 +235,19 @@ export async function submitPublicScheduleRegistration(payload: {
   // Check employee & PIN
   const emp = await prisma.employee.findUnique({
     where: { id: payload.employeeId },
-    select: { id: true, phone: true, fullName: true, status: true },
+    select: { id: true, phone: true, pinHash: true, fullName: true, status: true },
   });
 
   if (!emp || emp.status !== "ACTIVE") {
     throw new AppNotFoundError("Nhân viên không tồn tại hoặc đã ngừng làm việc");
   }
 
-  if (!validateEmployeePin(emp.phone, payload.pinCode)) {
-    throw new AppUnauthorizedError("Mã PIN không chính xác (Vui lòng nhập đúng 4 số cuối SĐT đã đăng ký)");
+  if (!(await verifyEmployeePin(emp.phone, payload.pinCode, emp.pinHash))) {
+    throw new AppUnauthorizedError(
+      emp.pinHash
+        ? "Mã PIN không chính xác (Vui lòng nhập đúng mã PIN cá nhân của bạn)"
+        : "Mã PIN không chính xác (Vui lòng nhập đúng 4 số cuối SĐT đã đăng ký)",
+    );
   }
 
   // Check schedule deadline
@@ -222,13 +256,14 @@ export async function submitPublicScheduleRegistration(payload: {
     select: { id: true, availabilityDeadline: true, status: true },
   });
 
-  if (schedule) {
-    if (schedule.status === "PUBLISHED" || schedule.status === "LOCKED") {
-      throw new AppForbiddenError("Lịch tuần này đã được Quản lý chốt, không nhận thêm đăng ký mới");
-    }
-    if (schedule.availabilityDeadline && !isRegistrationOpen(schedule.availabilityDeadline)) {
-      throw new AppForbiddenError(`Đợt đăng ký đã kết thúc lúc ${formatDateTimeVN(schedule.availabilityDeadline)}`);
-    }
+  if (schedule && (schedule.status === "PUBLISHED" || schedule.status === "LOCKED")) {
+    throw new AppForbiddenError("Lịch tuần này đã được Quản lý chốt, không nhận thêm đăng ký mới");
+  }
+
+  const defaultDeadline = getDefaultRegistrationDeadline(weekStart);
+  const effectiveDeadline = schedule?.availabilityDeadline || defaultDeadline;
+  if (!isRegistrationOpen(effectiveDeadline)) {
+    throw new AppForbiddenError(`Đợt đăng ký đã kết thúc lúc ${formatDateTimeVN(effectiveDeadline)}`);
   }
 
   // Load templates to build shift intervals

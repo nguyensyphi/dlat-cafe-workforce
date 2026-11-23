@@ -2,27 +2,17 @@
 
 import React, { useRef } from "react";
 import {
-  FileText,
   Printer,
   Download,
   Coffee,
-  CheckCircle2,
-  Calendar,
-  User,
-  BadgeCheck,
-  Building2,
 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatVnd } from "@/lib/currency";
-import { formatDateVN } from "@/lib/date";
 
 export interface PayslipData {
   periodName: string;
@@ -237,20 +227,20 @@ export function PayslipModal({ open, onOpenChange, data }: PayslipModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md sm:max-w-xl p-0 overflow-hidden rounded-2xl print:m-0 print:p-0 print:border-none print:shadow-none">
+      <DialogContent className="max-w-[calc(100vw-1.5rem)] sm:max-w-xl p-0 overflow-hidden rounded-2xl [&>button]:hidden print:m-0 print:p-0 print:border-none print:shadow-none">
         {/* Printable Area */}
-        <div ref={printAreaRef} className="p-6 bg-white space-y-5">
+        <div ref={printAreaRef} className="p-4 sm:p-6 bg-white space-y-4 sm:space-y-5 overflow-y-auto max-h-[85vh]">
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-slate-200 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-700 text-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-700 text-white shadow-sm">
                 <Coffee className="h-6 w-6" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-800">
-                  D'lat Cafe & Bistro
+                  D&apos;lat Cafe &amp; Bistro
                 </h3>
-                <h2 className="text-xl font-bold text-slate-900 leading-tight">
+                <h2 className="text-lg sm:text-xl font-bold text-slate-900 leading-tight">
                   Phiếu Lương Nhân Viên
                 </h2>
                 <p className="text-xs text-slate-500">{data.periodName}</p>
@@ -342,24 +332,24 @@ export function PayslipModal({ open, onOpenChange, data }: PayslipModalProps) {
           </div>
 
           {/* Action buttons (hidden when printing) */}
-          <div className="flex items-center justify-between gap-3 pt-2 print:hidden border-t border-slate-100">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-2 print:hidden border-t border-slate-100">
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={handlePrint}
-              className="gap-1.5 text-xs text-slate-700 border-slate-300 hover:bg-slate-50"
+              className="min-h-[44px] h-11 w-full sm:w-auto gap-1.5 text-xs text-slate-700 border-slate-300 hover:bg-slate-50"
             >
               <Printer className="h-3.5 w-3.5" />
               <span>In phiếu lương</span>
             </Button>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
               <Button
                 type="button"
                 size="sm"
                 onClick={handleDownloadZaloImage}
-                className="bg-emerald-700 hover:bg-emerald-800 text-white font-semibold gap-1.5 text-xs"
+                className="min-h-[44px] h-11 w-full sm:w-auto bg-emerald-700 hover:bg-emerald-800 text-white font-semibold gap-1.5 text-xs"
               >
                 <Download className="h-3.5 w-3.5" />
                 <span>Tải ảnh gửi Zalo</span>
@@ -370,7 +360,7 @@ export function PayslipModal({ open, onOpenChange, data }: PayslipModalProps) {
                 variant="ghost"
                 size="sm"
                 onClick={() => onOpenChange(false)}
-                className="text-xs text-slate-500 hover:text-slate-900"
+                className="min-h-[44px] h-11 w-full sm:w-auto text-xs text-slate-500 hover:text-slate-900"
               >
                 Đóng
               </Button>

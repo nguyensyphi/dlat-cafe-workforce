@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { apiSuccess, handleApiError } from "@/lib/api-response";
-import { requireServerSession } from "@/lib/auth";
+import { requireApiSession } from "@/lib/auth";
 import { handoverService } from "@/modules/handover/handover.service";
 
 export async function POST(
@@ -8,7 +8,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const actor = await requireServerSession("attendance:manage");
+    const actor = await requireApiSession("attendance:manage");
     const { id } = await params;
     const body = await request.json().catch(() => ({}));
 

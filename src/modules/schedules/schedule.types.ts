@@ -3,6 +3,13 @@ import type {
 } from "./conflict-detector";
 import type { ScheduleStatus, ShiftStatus } from "@prisma/client";
 
+export const SCHEDULE_STATUS_LABELS: Record<ScheduleStatus, string> = {
+  DRAFT: "Bản nháp",
+  PUBLISHED: "Đã công bố",
+  LOCKED: "Đã khóa",
+  ARCHIVED: "Đã lưu trữ",
+};
+
 export interface AssignmentDto {
   id: string;
   employeeId: string;

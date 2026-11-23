@@ -1,7 +1,10 @@
 import type { Prisma, ScheduleStatus } from "@prisma/client";
 import { formatDateVN, formatIsoDateOnly } from "@/lib/date";
 import { AppForbiddenError } from "@/lib/permissions";
-import { createNotifications } from "@/modules/notifications/notification.service";
+import {
+  createNotifications,
+  dispatchNotificationsToUsers,
+} from "@/modules/notifications/notification.service";
 
 type Tx = Prisma.TransactionClient;
 
@@ -119,15 +122,24 @@ export async function notifyScheduleChange(
     where: { id: { in: input.employeeIds } },
     select: { userId: true },
   });
+  const title = `Lịch tuần ${formatDateVN(input.weekStart)} đã thay đổi`;
+  const linkUrl = `/employee/schedule?week=${formatIsoDateOnly(input.weekStart)}`;
+  const userIds = employees.map((e) => e.userId);
   await createNotifications(
     tx,
-    employees.map((e) => ({
-      userId: e.userId,
+    userIds.map((userId) => ({
+      userId,
       type: "SCHEDULE_UPDATED" as const,
-      title: `Lịch tuần ${formatDateVN(input.weekStart)} đã thay đổi`,
+      title,
       message: input.detail,
-      linkUrl: `/employee/schedule?week=${formatIsoDateOnly(input.weekStart)}`,
+      linkUrl,
     })),
   );
+  await dispatchNotificationsToUsers(userIds, {
+    eventType: "SCHEDULE_UPDATED",
+    title,
+    message: input.detail,
+    linkUrl,
+  });
 }
 

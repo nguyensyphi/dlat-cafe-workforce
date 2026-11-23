@@ -3,6 +3,7 @@ import type {
   SkillProficiency,
   UserRole,
 } from "@prisma/client";
+import type { NotificationPreferences } from "@/modules/notifications/notification.validation";
 
 export interface EmployeeSkillDto {
   positionId: string;
@@ -50,6 +51,16 @@ export interface EmployeeSummaryDto {
   maxWeeklyHours: number;
   fixedRestDay: number | null;
   currentHourlyRate: string;
+  telegramChatId: string | null;
+  zaloUserId: string | null;
+  notificationPreferences: NotificationPreferences;
+}
+
+export interface SelfNotificationSettingsDto {
+  userId: string;
+  telegramChatId: string | null;
+  zaloUserId: string | null;
+  notificationPreferences: NotificationPreferences;
 }
 
 export interface EmployeeDetailDto extends EmployeeSummaryDto {

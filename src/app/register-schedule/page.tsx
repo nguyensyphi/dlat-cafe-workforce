@@ -17,7 +17,7 @@ export default async function RegisterSchedulePage({ searchParams }: PageProps) 
   const initialWeek = resolvedParams.week || "";
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900 pb-16">
+    <main className="min-h-screen bg-slate-50 text-slate-900 pb-[calc(4rem+env(safe-area-inset-bottom,0px))]">
       <Suspense
         fallback={
           <div className="flex min-h-[60vh] items-center justify-center">

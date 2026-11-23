@@ -9,21 +9,25 @@ import {
   assertSelfOrManager,
 } from "@/lib/permissions";
 import { recordAuditLog } from "@/modules/audit/audit.service";
+import { normalizeNotificationPreferences } from "@/modules/notifications/notification.validation";
 import { employeeRepository } from "./employee.repository";
 import type {
   EmployeeDetailDto,
   EmployeeSummaryDto,
   ListEmployeesFilter,
+  SelfNotificationSettingsDto,
 } from "./employee.types";
 import {
   addPayRateSchema,
   createEmployeeSchema,
   setEmployeeStatusSchema,
   updateEmployeeSchema,
+  updateSelfNotificationsSchema,
   type AddPayRateInput,
   type CreateEmployeeInput,
   type SetEmployeeStatusInput,
   type UpdateEmployeeInput,
+  type UpdateSelfNotificationsInput,
 } from "./employee.validation";
 
 export const employeeService = {
@@ -102,6 +106,21 @@ export const employeeService = {
           passwordHash,
           role: data.role,
           isActive: true,
+          ...(data.telegramChatId !== undefined
+            ? { telegramChatId: data.telegramChatId }
+            : {}),
+          ...(data.zaloUserId !== undefined
+            ? { zaloUserId: data.zaloUserId }
+            : {}),
+          ...(data.notificationPreferences !== undefined
+            ? {
+                notificationPreferences: {
+                  telegram: data.notificationPreferences.telegram,
+                  zalo: data.notificationPreferences.zalo,
+                  email: data.notificationPreferences.email,
+                },
+              }
+            : {}),
         },
       });
 
@@ -234,14 +253,47 @@ export const employeeService = {
       ? await hashPassword(data.newPassword)
       : undefined;
 
+    const currentPrefs = normalizeNotificationPreferences(
+      existing.notificationPreferences,
+    );
+    const nextPrefs = data.notificationPreferences
+      ? {
+          telegram:
+            data.notificationPreferences.telegram ?? currentPrefs.telegram,
+          zalo: data.notificationPreferences.zalo ?? currentPrefs.zalo,
+          email: data.notificationPreferences.email ?? currentPrefs.email,
+        }
+      : currentPrefs;
+
     await prisma.$transaction(async (tx) => {
-      if (data.role !== undefined || newPasswordHash !== undefined) {
+      if (
+        data.role !== undefined ||
+        newPasswordHash !== undefined ||
+        data.telegramChatId !== undefined ||
+        data.zaloUserId !== undefined ||
+        data.notificationPreferences !== undefined
+      ) {
         await tx.user.update({
           where: { id: existing.userId },
           data: {
             ...(data.role !== undefined ? { role: data.role } : {}),
             ...(newPasswordHash !== undefined
               ? { passwordHash: newPasswordHash }
+              : {}),
+            ...(data.telegramChatId !== undefined
+              ? { telegramChatId: data.telegramChatId }
+              : {}),
+            ...(data.zaloUserId !== undefined
+              ? { zaloUserId: data.zaloUserId }
+              : {}),
+            ...(data.notificationPreferences !== undefined
+              ? {
+                  notificationPreferences: {
+                    telegram: nextPrefs.telegram,
+                    zalo: nextPrefs.zalo,
+                    email: nextPrefs.email,
+                  },
+                }
               : {}),
           },
         });
@@ -512,6 +564,144 @@ export const employeeService = {
       throw new AppNotFoundError("Không tìm thấy hồ sơ nhân viên");
     }
     return updated;
+  },
+
+  async getSelfNotificationSettings(
+    actor: SessionUser,
+  ): Promise<SelfNotificationSettingsDto> {
+    assertPermission(actor.role, "self:profile");
+
+    const user = await prisma.user.findUnique({
+      where: { id: actor.userId },
+      select: {
+        id: true,
+        telegramChatId: true,
+        zaloUserId: true,
+        notificationPreferences: true,
+      },
+    });
+    if (!user) {
+      throw new AppNotFoundError("Không tìm thấy tài khoản người dùng");
+    }
+
+    return {
+      userId: user.id,
+      telegramChatId: user.telegramChatId ?? null,
+      zaloUserId: user.zaloUserId ?? null,
+      notificationPreferences: normalizeNotificationPreferences(
+        user.notificationPreferences,
+      ),
+    };
+  },
+
+  async updateSelfNotificationSettings(
+    actor: SessionUser,
+    rawInput: UpdateSelfNotificationsInput,
+  ): Promise<SelfNotificationSettingsDto> {
+    assertPermission(actor.role, "self:profile");
+
+    const parsed = updateSelfNotificationsSchema.safeParse(rawInput);
+    if (!parsed.success) {
+      throw new AppValidationError(
+        parsed.error.issues[0]?.message ??
+          "Thông tin cài đặt thông báo không hợp lệ",
+      );
+    }
+
+    const data = parsed.data;
+
+    const existing = await prisma.user.findUnique({
+      where: { id: actor.userId },
+      select: {
+        id: true,
+        telegramChatId: true,
+        zaloUserId: true,
+        notificationPreferences: true,
+      },
+    });
+    if (!existing) {
+      throw new AppNotFoundError("Không tìm thấy tài khoản người dùng");
+    }
+
+    const currentPrefs = normalizeNotificationPreferences(
+      existing.notificationPreferences,
+    );
+    const nextPrefs = data.notificationPreferences
+      ? {
+          telegram:
+            data.notificationPreferences.telegram ?? currentPrefs.telegram,
+          zalo: data.notificationPreferences.zalo ?? currentPrefs.zalo,
+          email: data.notificationPreferences.email ?? currentPrefs.email,
+        }
+      : currentPrefs;
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const nextUser = await tx.user.update({
+        where: { id: actor.userId },
+        data: {
+          ...(data.telegramChatId !== undefined
+            ? { telegramChatId: data.telegramChatId }
+            : {}),
+          ...(data.zaloUserId !== undefined
+            ? { zaloUserId: data.zaloUserId }
+            : {}),
+          ...(data.notificationPreferences !== undefined
+            ? {
+                notificationPreferences: {
+                  telegram: nextPrefs.telegram,
+                  zalo: nextPrefs.zalo,
+                  email: nextPrefs.email,
+                },
+              }
+            : {}),
+        },
+        select: {
+          id: true,
+          telegramChatId: true,
+          zaloUserId: true,
+          notificationPreferences: true,
+        },
+      });
+
+      await recordAuditLog(
+        {
+          userId: actor.userId,
+          action: "PROFILE_NOTIFICATIONS_UPDATED",
+          entityType: "User",
+          entityId: actor.userId,
+          oldValues: {
+            telegramChatId: existing.telegramChatId,
+            zaloUserId: existing.zaloUserId,
+            notificationPreferences: {
+              telegram: currentPrefs.telegram,
+              zalo: currentPrefs.zalo,
+              email: currentPrefs.email,
+            },
+          },
+          newValues: {
+            telegramChatId: nextUser.telegramChatId,
+            zaloUserId: nextUser.zaloUserId,
+            notificationPreferences: {
+              telegram: nextPrefs.telegram,
+              zalo: nextPrefs.zalo,
+              email: nextPrefs.email,
+            },
+          },
+        },
+        tx,
+      );
+
+      return nextUser;
+    });
+
+    return {
+      userId: updated.id,
+      telegramChatId: updated.telegramChatId ?? null,
+      zaloUserId: updated.zaloUserId ?? null,
+      notificationPreferences: normalizeNotificationPreferences(
+        updated.notificationPreferences,
+      ),
+    };
   },
 };
 

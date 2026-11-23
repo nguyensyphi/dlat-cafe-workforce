@@ -166,11 +166,16 @@ export const availabilityService = {
       schedule?.availabilityDeadline ??
       computeAvailabilityDeadline(data.weekStart, leadDays);
 
-    // Non-managers are blocked if deadline passed and schedule is locked/published
-    if (actor.role === "EMPLOYEE" && new Date() > deadlineAt) {
+    // Non-managers are blocked after 19:00 Saturday deadline OR once schedule is published/locked
+    if (actor.role === "EMPLOYEE") {
+      if (new Date() > deadlineAt) {
+        throw new AppForbiddenError(
+          `Đã qua hạn đăng ký ca trước 19:00 Thứ 7 (${formatDateVN(deadlineAt)}). Vui lòng liên hệ Quản lý để chỉnh sửa.`,
+        );
+      }
       if (schedule && (schedule.status === "PUBLISHED" || schedule.status === "LOCKED")) {
         throw new AppForbiddenError(
-          `Hạn đăng ký lịch rảnh (${formatDateVN(deadlineAt)}) đã kết thúc`,
+          `Lịch tuần này đã được Quản lý chốt, không thể tự chỉnh sửa lịch rảnh.`,
         );
       }
     }

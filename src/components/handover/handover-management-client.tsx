@@ -1,20 +1,14 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   CheckCircle2,
-  Clock,
   DollarSign,
   Eye,
-  FileCheck,
-  Package,
   RefreshCw,
   Search,
-  Sparkles,
-  Wrench,
-  XCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,7 +23,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatVnd } from "@/lib/currency";
-import { formatDateVN } from "@/lib/date";
 
 export interface HandoverRecord {
   id: string;
@@ -46,9 +39,14 @@ export interface HandoverRecord {
   actualClosingCashVnd: number;
   cashDifferenceVnd: number;
   cashDiscrepancyReason: string | null;
-  stockReport: any;
-  equipmentReport: any;
-  cleanlinessReport: any;
+  stockReport: unknown;
+  equipmentReport: unknown;
+  cleanlinessReport: Array<{
+    area?: string;
+    isDone?: boolean;
+    note?: string;
+    isDueToday?: boolean;
+  }> | unknown;
   customerNotes: string | null;
   pendingTasks: string[];
   handoverNotes: string | null;
@@ -64,16 +62,22 @@ interface HandoverManagementClientProps {
 
 export function HandoverManagementClient({
   initialHandovers,
-  initialDate,
 }: HandoverManagementClientProps) {
   const router = useRouter();
   const [handovers, setHandovers] = useState<HandoverRecord[]>(initialHandovers);
-  const [selectedDate, setSelectedDate] = useState(initialDate);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [search, setSearch] = useState("");
   const [selectedHandover, setSelectedHandover] = useState<HandoverRecord | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [reviewNoteInput, setReviewNoteInput] = useState("");
+
+  useEffect(() => {
+    setHandovers(initialHandovers);
+  }, [initialHandovers]);
+
+  useEffect(() => {
+    router.refresh();
+  }, [router]);
 
   const filtered = handovers.filter((h) => {
     if (search) {
@@ -432,6 +436,57 @@ export function HandoverManagementClient({
                   </div>
                 )}
               </div>
+
+              {/* D'Lat Daily Checklist Summary */}
+              {Array.isArray(selectedHandover.cleanlinessReport) &&
+                selectedHandover.cleanlinessReport.length > 0 && (
+                  <div className="p-3 rounded-lg border bg-slate-50/70 space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-900">
+                        Checklist công việc ca (
+                        {
+                          selectedHandover.cleanlinessReport.filter(
+                            (c: { isDone?: boolean }) => c.isDone,
+                          ).length
+                        }
+                        /{selectedHandover.cleanlinessReport.length} mục đã tick)
+                      </span>
+                    </div>
+                    <div className="max-h-48 overflow-y-auto space-y-1 pr-1">
+                      {selectedHandover.cleanlinessReport.map(
+                        (
+                          c: {
+                            area?: string;
+                            isDone?: boolean;
+                            note?: string;
+                            isDueToday?: boolean;
+                          },
+                          idx: number,
+                        ) => (
+                          <div
+                            key={idx}
+                            className={`flex items-start justify-between gap-2 rounded px-2 py-1 ${
+                              c.isDone
+                                ? "bg-emerald-50/70 text-emerald-900"
+                                : c.isDueToday === false
+                                  ? "bg-slate-100 text-slate-500"
+                                  : "bg-rose-50 text-rose-900 border border-rose-200"
+                            }`}
+                          >
+                            <span>
+                              {c.isDone ? "☑" : "☐"} {c.area}
+                            </span>
+                            {c.note && (
+                              <span className="italic text-[11px] shrink-0 max-w-[220px] truncate">
+                                {c.note}
+                              </span>
+                            )}
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                )}
 
               {/* Tasks & Customer Notes */}
               {(selectedHandover.pendingTasks?.length > 0 || selectedHandover.customerNotes) && (

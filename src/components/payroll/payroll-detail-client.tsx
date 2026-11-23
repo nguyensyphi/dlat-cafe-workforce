@@ -207,7 +207,7 @@ export function PayrollDetailClient({
             i.id === editingItem.id ? json.data : i,
           );
           const totalPayrollVND = updatedItems.reduce(
-            (acc, cur) => acc + cur.totalPayVND,
+            (acc, cur) => acc + BigInt(cur.totalPayVND ?? 0),
             0n,
           );
           return {
@@ -232,17 +232,17 @@ export function PayrollDetailClient({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-w-0">
       {/* Top Bar Navigation */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
           <Link href="/payroll">
-            <Button variant="ghost" size="sm" className="gap-2">
+            <Button variant="ghost" size="sm" className="min-h-[44px] sm:min-h-0 gap-2">
               <ArrowLeft className="h-4 w-4" />
               <span>Kỳ lương</span>
             </Button>
           </Link>
-          <h1 className="text-2xl font-bold tracking-tight">{period.name}</h1>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight break-words">{period.name}</h1>
           <Badge variant={st.variant} className={st.className}>
             {isLocked && <Lock className="mr-1 h-3 w-3 inline" />}
             {st.label}
@@ -255,8 +255,9 @@ export function PayrollDetailClient({
           <a
             href={`/api/reports/export/payroll?periodId=${period.id}`}
             download={`bang-luong-${period.name}.csv`}
+            className="inline-flex"
           >
-            <Button variant="outline" size="sm" className="gap-2">
+            <Button variant="outline" size="sm" className="min-h-[44px] sm:min-h-0 gap-2">
               <Download className="h-4 w-4" />
               <span>Xuất CSV (Excel)</span>
             </Button>
@@ -268,7 +269,7 @@ export function PayrollDetailClient({
               variant="outline"
               size="sm"
               onClick={() => setExcelModalOpen(true)}
-              className="gap-2 border-emerald-600/60 text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 font-medium"
+              className="min-h-[44px] sm:min-h-0 gap-2 border-emerald-600/60 text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 font-medium"
             >
               <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
               <span>Nhập giờ từ Excel</span>
@@ -282,7 +283,7 @@ export function PayrollDetailClient({
               size="sm"
               onClick={handleCalculate}
               disabled={actionLoading}
-              className="gap-2 border-emerald-600/40 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
+              className="min-h-[44px] sm:min-h-0 gap-2 border-emerald-600/40 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
             >
               <Calculator className="h-4 w-4" />
               <span>Tính toán từ chấm công</span>
@@ -297,7 +298,7 @@ export function PayrollDetailClient({
                 handleTransition("REVIEWED", "Xác nhận đã rà soát giờ công và các khoản phụ cấp?")
               }
               disabled={actionLoading}
-              className="gap-2 bg-amber-600 text-white hover:bg-amber-700"
+              className="min-h-[44px] sm:min-h-0 gap-2 bg-amber-600 text-white hover:bg-amber-700"
             >
               <CheckCircle2 className="h-4 w-4" />
               <span>Xác nhận Rà soát</span>
@@ -311,7 +312,7 @@ export function PayrollDetailClient({
                 handleTransition("APPROVED", "Phê duyệt bảng lương chính thức cho toàn bộ nhân sự?")
               }
               disabled={actionLoading}
-              className="gap-2 bg-emerald-600 text-white hover:bg-emerald-700"
+              className="min-h-[44px] sm:min-h-0 gap-2 bg-emerald-600 text-white hover:bg-emerald-700"
             >
               <CheckCircle2 className="h-4 w-4" />
               <span>Phê duyệt Bảng lương</span>
@@ -325,7 +326,7 @@ export function PayrollDetailClient({
                 handleTransition("PAID", "Xác nhận đã hoàn thành chi trả lương cho nhân viên?")
               }
               disabled={actionLoading}
-              className="gap-2 bg-blue-600 text-white hover:bg-blue-700"
+              className="min-h-[44px] sm:min-h-0 gap-2 bg-blue-600 text-white hover:bg-blue-700"
             >
               <CheckCircle2 className="h-4 w-4" />
               <span>Đã chi trả lương</span>
@@ -343,7 +344,7 @@ export function PayrollDetailClient({
                 )
               }
               disabled={actionLoading}
-              className="gap-2"
+              className="min-h-[44px] sm:min-h-0 gap-2"
             >
               <Lock className="h-4 w-4" />
               <span>Khóa sổ Vĩnh viễn</span>
@@ -360,7 +361,7 @@ export function PayrollDetailClient({
       )}
 
       {/* Period Details Cards */}
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         <Card className="border-border">
           <CardHeader className="pb-1">
             <span className="text-xs text-muted-foreground uppercase">Khoảng ngày tính lương</span>
@@ -403,7 +404,7 @@ export function PayrollDetailClient({
       </div>
 
       {/* Table of Payroll Items */}
-      <Card className="border-border">
+      <Card className="border-border overflow-hidden">
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-semibold">
             Bảng chi tiết Lương từng Nhân viên ({period.items.length})
@@ -415,13 +416,128 @@ export function PayrollDetailClient({
               Kỳ lương này chưa có dữ liệu tính toán. Nhấn &quot;Tính toán từ chấm công&quot; ở góc phải để tạo bảng lương.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
+            <>
+              {/* Mobile Card View (< md) */}
+              <div className="md:hidden space-y-3">
+                {period.items.map((item) => {
+                  const totalAllowancesAndBonuses =
+                    BigInt(item.allowancesVND ?? 0) + BigInt(item.bonusesVND ?? 0);
+                  const deductions = BigInt(item.deductionsVND ?? 0);
+                  const overtimePay = BigInt(item.overtimePayVND ?? 0);
+
+                  return (
+                    <div
+                      key={item.id}
+                      className="rounded-xl border border-border bg-card p-3.5 space-y-3"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-foreground truncate">
+                            {item.employeeName}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {item.employeeCode} • {item.primaryPositionName}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-[11px] text-muted-foreground">Thực lĩnh</p>
+                          <p className="text-base font-bold text-emerald-600">
+                            {formatVnd(item.totalPayVND)}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 rounded-lg bg-muted/40 p-2.5 text-xs">
+                        <div>
+                          <p className="text-[11px] text-muted-foreground">Kế hoạch (T1)</p>
+                          <p className="font-medium">{item.scheduledHours.toFixed(2)}h</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] text-muted-foreground">Thực tế (T2)</p>
+                          <p className="font-medium">{item.workedHours.toFixed(2)}h</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] text-emerald-700 font-medium">Tính lương (T4)</p>
+                          <p className="font-bold text-emerald-600">
+                            {item.paidHours.toFixed(2)}h
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-muted-foreground">Đơn giá/h:</span>
+                          <span className="font-medium">{formatVnd(item.hourlyRateSnapshotVND)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-muted-foreground">Lương CB:</span>
+                          <span className="font-medium">{formatVnd(item.basePayVND)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-muted-foreground">Tăng ca:</span>
+                          <span className={item.overtimeHours > 0 ? "font-medium text-amber-600" : "text-muted-foreground"}>
+                            {item.overtimeHours > 0
+                              ? `+${item.overtimeHours.toFixed(2)}h (${formatVnd(overtimePay)})`
+                              : "0h"}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-muted-foreground">PC/Thưởng:</span>
+                          <span className={totalAllowancesAndBonuses > 0n ? "font-medium text-emerald-600" : "text-muted-foreground"}>
+                            {totalAllowancesAndBonuses > 0n
+                              ? `+${formatVnd(totalAllowancesAndBonuses)}`
+                              : "0 ₫"}
+                          </span>
+                        </div>
+                        {deductions > 0n && (
+                          <div className="sm:col-span-2 flex items-center justify-between gap-2">
+                            <span className="text-muted-foreground">Khấu trừ:</span>
+                            <span className="font-medium text-rose-600">
+                              -{formatVnd(deductions)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 pt-1 border-t border-border">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1 min-h-[44px] text-xs gap-1.5 border-primary/30 text-primary hover:bg-primary/5"
+                          onClick={() => handleOpenPayslip(item)}
+                          title="Xem & chia sẻ phiếu tính lương cho nhân viên"
+                        >
+                          <FileText className="h-4 w-4" />
+                          <span>Phiếu lương</span>
+                        </Button>
+                        {canEditItems && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="min-h-[44px] min-w-[44px] px-3 text-xs gap-1.5"
+                            onClick={() => handleOpenEditItem(item)}
+                            title="Chỉnh sửa phụ cấp, thưởng, khấu trừ"
+                          >
+                            <Edit3 className="h-4 w-4" />
+                            <span>Sửa</span>
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop Table View (>= md) */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left text-sm">
                 <thead className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
                   <tr>
                     <th className="py-3 px-3">Nhân viên</th>
                     <th className="py-3 px-3">Vị trí</th>
-                    <th className="py-3 px-3 text-right">Giờ tính lương</th>
+                    <th className="py-3 px-3 text-right" title="T1: Tổng thời gian theo lịch phân công">Kế hoạch (T1)</th>
+                    <th className="py-3 px-3 text-right" title="T2: Tổng giờ chấm công thực tế">Thực tế (T2)</th>
+                    <th className="py-3 px-3 text-right text-emerald-600 font-semibold" title="T4: Giờ công tính lương sau làm tròn 5 phút">Tính lương (T4)</th>
                     <th className="py-3 px-3 text-right">Giờ tăng ca</th>
                     <th className="py-3 px-3 text-right">Đơn giá/giờ</th>
                     <th className="py-3 px-3 text-right">Lương cơ bản</th>
@@ -445,7 +561,13 @@ export function PayrollDetailClient({
                         </div>
                       </td>
                       <td className="py-3 px-3 text-xs">{item.primaryPositionName}</td>
-                      <td className="py-3 px-3 text-right font-medium">
+                      <td className="py-3 px-3 text-right text-muted-foreground text-xs">
+                        {item.scheduledHours.toFixed(2)}h
+                      </td>
+                      <td className="py-3 px-3 text-right text-xs font-medium">
+                        {item.workedHours.toFixed(2)}h
+                      </td>
+                      <td className="py-3 px-3 text-right font-bold text-emerald-600">
                         {item.paidHours.toFixed(2)}h
                       </td>
                       <td className="py-3 px-3 text-right">
@@ -464,27 +586,27 @@ export function PayrollDetailClient({
                         {formatVnd(item.basePayVND)}
                       </td>
                       <td className="py-3 px-3 text-right text-xs">
-                        {item.overtimePayVND > 0n ? (
+                        {BigInt(item.overtimePayVND ?? 0) > 0n ? (
                           <span className="text-amber-600 font-medium">
-                            +{formatVnd(item.overtimePayVND)}
+                            +{formatVnd(BigInt(item.overtimePayVND ?? 0))}
                           </span>
                         ) : (
                           "0 ₫"
                         )}
                       </td>
                       <td className="py-3 px-3 text-right text-xs">
-                        {item.allowancesVND + item.bonusesVND > 0n ? (
+                        {BigInt(item.allowancesVND ?? 0) + BigInt(item.bonusesVND ?? 0) > 0n ? (
                           <span className="text-emerald-600 font-medium">
-                            +{formatVnd(item.allowancesVND + item.bonusesVND)}
+                            +{formatVnd(BigInt(item.allowancesVND ?? 0) + BigInt(item.bonusesVND ?? 0))}
                           </span>
                         ) : (
                           "0 ₫"
                         )}
                       </td>
                       <td className="py-3 px-3 text-right text-xs">
-                        {item.deductionsVND > 0n ? (
+                        {BigInt(item.deductionsVND ?? 0) > 0n ? (
                           <span className="text-rose-600 font-medium">
-                            -{formatVnd(item.deductionsVND)}
+                            -{formatVnd(BigInt(item.deductionsVND ?? 0))}
                           </span>
                         ) : (
                           "0 ₫"
@@ -523,6 +645,7 @@ export function PayrollDetailClient({
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -539,7 +662,7 @@ export function PayrollDetailClient({
             </DialogHeader>
 
             <form onSubmit={handleSaveItem} className="space-y-4 pt-2">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label htmlFor="item-allowances" className="text-xs">
                     Phụ cấp (VND):
@@ -566,7 +689,7 @@ export function PayrollDetailClient({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label htmlFor="item-deductions" className="text-xs text-rose-600">
                     Khấu trừ (VND):
@@ -609,6 +732,7 @@ export function PayrollDetailClient({
                 <Button
                   type="button"
                   variant="outline"
+                  className="min-h-[44px] sm:min-h-0"
                   onClick={() => setEditingItem(null)}
                 >
                   Hủy
@@ -616,7 +740,7 @@ export function PayrollDetailClient({
                 <Button
                   type="submit"
                   disabled={actionLoading || editReason.trim().length < 5}
-                  className="bg-emerald-600 text-white hover:bg-emerald-700"
+                  className="min-h-[44px] sm:min-h-0 bg-emerald-600 text-white hover:bg-emerald-700"
                 >
                   {actionLoading ? "Đang lưu..." : "Lưu thay đổi"}
                 </Button>

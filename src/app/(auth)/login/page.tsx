@@ -31,7 +31,11 @@ type LoginFormValues = z.infer<typeof loginFormSchema>;
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const from = searchParams.get("from");
+  const rawRedirect = searchParams.get("next") || searchParams.get("from");
+  const safeRedirect =
+    rawRedirect && rawRedirect.startsWith("/") && !rawRedirect.startsWith("//")
+      ? rawRedirect
+      : null;
   const [serverError, setServerError] = useState<string | null>(null);
 
   const {
@@ -63,7 +67,7 @@ function LoginForm() {
         return;
       }
 
-      const destination = from || payload.data.redirectTo || "/dashboard";
+      const destination = safeRedirect || payload.data.redirectTo || "/dashboard";
       router.push(destination);
       router.refresh();
     } catch {
@@ -112,13 +116,13 @@ function LoginForm() {
             <div className="space-y-1.5">
               <Label htmlFor="email">Email đăng nhập</Label>
               <div className="relative">
-                <Mail className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <Mail className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <Input
                   id="email"
                   type="email"
                   autoComplete="email"
                   placeholder="vd: owner@dlatcafe.vn"
-                  className="pl-9"
+                  className="pl-9 min-h-[44px] h-11"
                   {...register("email")}
                 />
               </div>
@@ -130,13 +134,13 @@ function LoginForm() {
             <div className="space-y-1.5">
               <Label htmlFor="password">Mật khẩu</Label>
               <div className="relative">
-                <Lock className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <Lock className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <Input
                   id="password"
                   type="password"
                   autoComplete="current-password"
                   placeholder="Nhập mật khẩu"
-                  className="pl-9"
+                  className="pl-9 min-h-[44px] h-11"
                   {...register("password")}
                 />
               </div>
@@ -147,7 +151,7 @@ function LoginForm() {
               )}
             </div>
 
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
+            <Button type="submit" className="w-full min-h-[44px] h-11" disabled={isSubmitting}>
               {isSubmitting ? "Đang xác thực..." : "Đăng nhập"}
             </Button>
           </form>

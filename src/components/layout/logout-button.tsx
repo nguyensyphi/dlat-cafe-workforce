@@ -27,9 +27,14 @@ export function LogoutButton({ compact = false }: { compact?: boolean }) {
       size={compact ? "sm" : "default"}
       onClick={handleLogout}
       disabled={loading}
+      aria-label="Đăng xuất"
+      title="Đăng xuất"
+      className={compact ? "min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-0 px-2.5 sm:px-3" : "min-h-[44px]"}
     >
-      <LogOut className="h-4 w-4" />
-      <span>{loading ? "Đang thoát..." : "Đăng xuất"}</span>
+      <LogOut className="h-4 w-4 shrink-0" />
+      <span className={compact ? "hidden sm:inline" : ""}>
+        {loading ? "Đang thoát..." : "Đăng xuất"}
+      </span>
     </Button>
   );
 }

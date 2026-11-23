@@ -9,10 +9,7 @@ import {
 } from "@/lib/permissions";
 import { parseOrThrow } from "@/lib/validation";
 import { recordAuditLog } from "@/modules/audit/audit.service";
-import {
-  calculateEmployeePayrollItem,
-  calculateOvertimeHours,
-} from "./payroll-calculator";
+import { calculateEmployeePayrollItem } from "./payroll-calculator";
 import type {
   PayrollItemDto,
   PayrollPeriodDetailDto,
@@ -199,19 +196,18 @@ export class PayrollService {
     const periodStart = parseDateOnlyUtc(input.periodStart);
     const periodEnd = parseDateOnlyUtc(input.periodEnd);
 
-    // Check duplicate range
-    const existing = await prisma.payrollPeriod.findUnique({
+    // Check duplicate or overlapping date range (Rule 8: Two payroll periods must not overlap and double-count hours)
+    const overlapping = await prisma.payrollPeriod.findFirst({
       where: {
-        periodStart_periodEnd: {
-          periodStart,
-          periodEnd,
-        },
+        periodStart: { lte: periodEnd },
+        periodEnd: { gte: periodStart },
       },
+      select: { id: true, name: true, periodStart: true, periodEnd: true },
     });
 
-    if (existing) {
+    if (overlapping) {
       throw new AppValidationError(
-        `Kỳ lương từ ${input.periodStart} đến ${input.periodEnd} đã tồn tại trong hệ thống.`,
+        `Khoảng thời gian từ ${input.periodStart} đến ${input.periodEnd} bị trùng lặp với kỳ lương "${overlapping.name}" (${formatIsoDateOnly(overlapping.periodStart)} – ${formatIsoDateOnly(overlapping.periodEnd)}). Hai kỳ lương không được giao nhau để tránh tính trùng giờ công.`,
       );
     }
 
@@ -291,9 +287,10 @@ export class PayrollService {
       );
     }
 
-    // 1. Fetch all attendance records in the date range
+    // 1. Fetch all non-rejected attendance records in the date range
     const attendances = await prisma.attendance.findMany({
       where: {
+        status: { not: "REJECTED" },
         workDate: {
           gte: period.periodStart,
           lte: period.periodEnd,
@@ -339,6 +336,7 @@ export class PayrollService {
         workedMinutes: number;
         approvedMinutes: number;
         paidMinutes: number;
+        approvedOvertimeMinutes: number;
       }
     >();
 
@@ -350,6 +348,7 @@ export class PayrollService {
         workedMinutes: 0,
         approvedMinutes: 0,
         paidMinutes: 0,
+        approvedOvertimeMinutes: 0,
       });
     }
 
@@ -363,6 +362,7 @@ export class PayrollService {
           workedMinutes: 0,
           approvedMinutes: 0,
           paidMinutes: 0,
+          approvedOvertimeMinutes: 0,
         };
         employeeMap.set(att.employeeId, entry);
       }
@@ -373,6 +373,10 @@ export class PayrollService {
       // If paidMinutes is not explicitly set, use approvedMinutes or workedMinutes
       entry.paidMinutes +=
         att.paidMinutes ?? att.approvedMinutes ?? att.workedMinutes;
+      // PRD 6.4: only manager-approved OT goes into OT pay
+      if (att.overtimeStatus === "APPROVED") {
+        entry.approvedOvertimeMinutes += att.overtimeMinutes;
+      }
     }
 
     // Existing items map to preserve existing allowances/bonuses/deductions
@@ -394,12 +398,16 @@ export class PayrollService {
         const rate = data.employee.payRates[0];
         const hourlyRateSnapshot = rate ? rate.hourlyRate : 0n;
 
-        // Overtime calculation
-        const threshold = Number(data.employee.maxWeeklyHours) || 48;
-        const { regularHours, overtimeHours } = calculateOvertimeHours({
-          totalPaidHours,
-          standardThresholdHours: threshold,
-        });
+        // Overtime: PRD 6.4 – only per-shift OT approved by a manager.
+        // Regular paid hours come from shift-window payable minutes (already exclude OT).
+        const regularHours = totalPaidHours;
+        const overtimeHours = Number(
+          (data.approvedOvertimeMinutes / 60).toFixed(2),
+        );
+        // Stored paidHours keeps the existing convention: regular + OT
+        const paidHoursIncludingOt = Number(
+          (regularHours + overtimeHours).toFixed(2),
+        );
 
         // Retain existing manual additions if already entered
         const existing = existingItemsMap.get(employeeId);
@@ -433,7 +441,7 @@ export class PayrollService {
             scheduledHours: new Prisma.Decimal(scheduledHours),
             workedHours: new Prisma.Decimal(workedHours),
             approvedHours: new Prisma.Decimal(approvedHours),
-            paidHours: new Prisma.Decimal(totalPaidHours),
+            paidHours: new Prisma.Decimal(paidHoursIncludingOt),
             overtimeHours: new Prisma.Decimal(overtimeHours),
             hourlyRateSnapshot,
             basePay: calc.basePay,
@@ -449,7 +457,7 @@ export class PayrollService {
             scheduledHours: new Prisma.Decimal(scheduledHours),
             workedHours: new Prisma.Decimal(workedHours),
             approvedHours: new Prisma.Decimal(approvedHours),
-            paidHours: new Prisma.Decimal(totalPaidHours),
+            paidHours: new Prisma.Decimal(paidHoursIncludingOt),
             overtimeHours: new Prisma.Decimal(overtimeHours),
             hourlyRateSnapshot,
             basePay: calc.basePay,

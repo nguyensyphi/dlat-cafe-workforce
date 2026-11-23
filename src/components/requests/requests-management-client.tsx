@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRightLeft,
@@ -35,6 +35,18 @@ export function RequestsManagementClient({
   const [tab, setTab] = useState<"LEAVES" | "SWAPS">("LEAVES");
   const [leaves, setLeaves] = useState(initialLeaves);
   const [swaps, setSwaps] = useState(initialSwaps);
+
+  useEffect(() => {
+    setLeaves(initialLeaves);
+  }, [initialLeaves]);
+
+  useEffect(() => {
+    setSwaps(initialSwaps);
+  }, [initialSwaps]);
+
+  useEffect(() => {
+    router.refresh();
+  }, [router]);
 
   const [reviewLeaveOpen, setReviewLeaveOpen] = useState(false);
   const [selectedLeave, setSelectedLeave] = useState<LeaveRequestDto | null>(null);
@@ -131,17 +143,17 @@ export function RequestsManagementClient({
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-2 border-b border-border">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border">
         <button
           type="button"
           onClick={() => setTab("LEAVES")}
-          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-2 ${
+          className={`min-h-[44px] px-3 sm:px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-2 ${
             tab === "LEAVES"
               ? "border-emerald-600 text-emerald-700"
               : "border-transparent text-slate-600 hover:text-slate-900"
           }`}
         >
-          <FileText className="h-4 w-4" />
+          <FileText className="h-4 w-4 shrink-0" />
           <span>Đơn xin nghỉ phép</span>
           {pendingLeaves.length > 0 && (
             <Badge variant="default" className="text-[10px] px-1.5 py-0">
@@ -153,13 +165,13 @@ export function RequestsManagementClient({
         <button
           type="button"
           onClick={() => setTab("SWAPS")}
-          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-2 ${
+          className={`min-h-[44px] px-3 sm:px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-2 ${
             tab === "SWAPS"
               ? "border-emerald-600 text-emerald-700"
               : "border-transparent text-slate-600 hover:text-slate-900"
           }`}
         >
-          <ArrowRightLeft className="h-4 w-4" />
+          <ArrowRightLeft className="h-4 w-4 shrink-0" />
           <span>Yêu cầu đổi ca</span>
           {pendingSwaps.length > 0 && (
             <Badge variant="warning" className="text-[10px] px-1.5 py-0">
@@ -186,8 +198,8 @@ export function RequestsManagementClient({
                   key={leave.id}
                   className={isPending ? "border-amber-300 bg-amber-50/20" : ""}
                 >
-                  <CardHeader className="py-3 px-4 flex flex-row items-center justify-between border-b border-border bg-slate-50/60">
-                    <div className="flex items-center gap-2">
+                  <CardHeader className="py-3 px-4 flex flex-row flex-wrap items-center justify-between gap-2 border-b border-border bg-slate-50/60">
+                    <div className="flex flex-wrap items-center gap-2 min-w-0">
                       <span className="font-semibold text-slate-900 text-sm">
                         {leave.employeeName}
                       </span>
@@ -243,12 +255,13 @@ export function RequestsManagementClient({
                     )}
 
                     {isPending && (
-                      <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                      <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-border">
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
                           onClick={() => openReviewLeave(leave, "REJECTED")}
+                          className="min-h-[44px] flex-1 sm:flex-none"
                         >
                           <XCircle className="h-3.5 w-3.5 text-red-600" />
                           <span>Từ chối</span>
@@ -257,6 +270,7 @@ export function RequestsManagementClient({
                           type="button"
                           size="sm"
                           onClick={() => openReviewLeave(leave, "APPROVED")}
+                          className="min-h-[44px] flex-1 sm:flex-none"
                         >
                           <CheckCircle2 className="h-3.5 w-3.5" />
                           <span>Phê duyệt nghỉ</span>
@@ -288,8 +302,8 @@ export function RequestsManagementClient({
                   key={swap.id}
                   className={canManagerReview ? "border-amber-300 bg-amber-50/20" : ""}
                 >
-                  <CardHeader className="py-3 px-4 flex flex-row items-center justify-between border-b border-border bg-slate-50/60">
-                    <div className="flex items-center gap-2">
+                  <CardHeader className="py-3 px-4 flex flex-row flex-wrap items-center justify-between gap-2 border-b border-border bg-slate-50/60">
+                    <div className="flex flex-wrap items-center gap-2 min-w-0">
                       <span className="font-semibold text-slate-900 text-sm">
                         {swap.requesterName}
                       </span>
@@ -350,12 +364,13 @@ export function RequestsManagementClient({
                     )}
 
                     {canManagerReview && (
-                      <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                      <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-border">
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
                           onClick={() => openReviewSwap(swap, false)}
+                          className="min-h-[44px] flex-1 sm:flex-none"
                         >
                           <XCircle className="h-3.5 w-3.5 text-red-600" />
                           <span>Từ chối</span>
@@ -364,6 +379,7 @@ export function RequestsManagementClient({
                           type="button"
                           size="sm"
                           onClick={() => openReviewSwap(swap, true)}
+                          className="min-h-[44px] flex-1 sm:flex-none"
                         >
                           <CheckCircle2 className="h-3.5 w-3.5" />
                           <span>Phê duyệt đổi ca</span>
@@ -401,11 +417,12 @@ export function RequestsManagementClient({
             </div>
           </div>
 
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
             <Button
               type="button"
               variant="outline"
               onClick={() => setReviewLeaveOpen(false)}
+              className="min-h-[44px] flex-1 sm:flex-none"
             >
               Hủy
             </Button>
@@ -414,6 +431,7 @@ export function RequestsManagementClient({
               variant={leaveDecision === "APPROVED" ? "default" : "destructive"}
               onClick={handleConfirmReviewLeave}
               disabled={actionLoading}
+              className="min-h-[44px] flex-1 sm:flex-none"
             >
               Xác nhận
             </Button>
@@ -444,11 +462,12 @@ export function RequestsManagementClient({
             </div>
           </div>
 
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
             <Button
               type="button"
               variant="outline"
               onClick={() => setReviewSwapOpen(false)}
+              className="min-h-[44px] flex-1 sm:flex-none"
             >
               Hủy
             </Button>
@@ -457,6 +476,7 @@ export function RequestsManagementClient({
               variant={swapDecision ? "default" : "destructive"}
               onClick={handleConfirmReviewSwap}
               disabled={actionLoading}
+              className="min-h-[44px] flex-1 sm:flex-none"
             >
               Xác nhận
             </Button>

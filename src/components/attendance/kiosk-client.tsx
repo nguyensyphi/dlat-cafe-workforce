@@ -133,17 +133,17 @@ export function KioskClient({ initialToken }: { initialToken: KioskTokenDto }) {
   const progressPercent = (secondsRemaining / REFRESH_SECONDS) * 100;
 
   return (
-    <div className="flex min-h-[calc(100vh-4rem)] flex-col items-center justify-center p-4 sm:p-6 lg:p-8">
+    <div className="flex min-h-[calc(100vh-4rem)] flex-col items-center justify-center p-3 sm:p-6 lg:p-8 min-w-0">
       {/* Top back bar */}
-      <div className="mb-6 flex w-full max-w-xl items-center justify-between">
+      <div className="mb-4 sm:mb-6 flex flex-wrap w-full max-w-xl items-center justify-between gap-2">
         <Link href="/attendance">
-          <Button variant="ghost" size="sm" className="gap-2">
+          <Button variant="ghost" size="sm" className="gap-2 min-h-[44px]">
             <ArrowLeft className="h-4 w-4" />
             <span>Quay lại Quản lý</span>
           </Button>
         </Link>
-        <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-sm font-medium shadow-sm">
-          <Clock className="h-4 w-4 text-emerald-600" />
+        <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm font-medium shadow-sm">
+          <Clock className="h-4 w-4 text-emerald-600 shrink-0" />
           <span>{currentTime || "—:—:—"}</span>
           <span className="text-xs text-muted-foreground">(GMT+7)</span>
         </div>
@@ -151,55 +151,55 @@ export function KioskClient({ initialToken }: { initialToken: KioskTokenDto }) {
 
       {/* Main Kiosk Card */}
       <Card className="w-full max-w-xl overflow-hidden border-2 border-emerald-600/20 shadow-xl">
-        <div className="bg-emerald-600 p-6 text-center text-white">
+        <div className="bg-emerald-600 p-4 sm:p-6 text-center text-white">
           <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-white/20">
             <QrCode className="h-6 w-6 text-white" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight">Kiosk Chấm công D&apos;lat Cafe</h1>
-          <p className="mt-1 text-sm text-emerald-100">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Kiosk Chấm công D&apos;lat Cafe</h1>
+          <p className="mt-1 text-xs sm:text-sm text-emerald-100">
             Quét mã QR bằng Camera điện thoại, Zalo hoặc tính năng Chấm công trong ứng dụng
           </p>
 
-          <div className="mt-3 flex items-center justify-center gap-2 text-xs bg-emerald-700/60 py-1.5 px-3 rounded-full w-fit mx-auto border border-emerald-500/30">
-            <Wifi className="h-3.5 w-3.5 text-emerald-200" />
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5 text-xs bg-emerald-700/60 py-1.5 px-3 rounded-2xl w-fit max-w-full mx-auto border border-emerald-500/30">
+            <Wifi className="h-3.5 w-3.5 text-emerald-200 shrink-0" />
             <span>Mạng nội bộ Wi-Fi:</span>
-            <code className="font-mono font-bold text-white bg-emerald-800/80 px-1.5 py-0.5 rounded">
+            <code className="font-mono font-bold text-white bg-emerald-800/80 px-1.5 py-0.5 rounded break-all">
               {activeHost}
             </code>
           </div>
         </div>
 
-        <CardContent className="flex flex-col items-center p-6 sm:p-8">
+        <CardContent className="flex flex-col items-center p-4 sm:p-8">
           {/* QR Mode Selector */}
-          <div className="mb-5 flex rounded-lg border border-border bg-muted/60 p-1 text-xs">
+          <div className="mb-5 flex flex-col sm:flex-row w-full sm:w-auto rounded-lg border border-border bg-muted/60 p-1 text-xs gap-1">
             <button
               type="button"
               onClick={() => setQrMode("URL")}
-              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors ${
+              className={`min-h-[44px] flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors ${
                 qrMode === "URL"
                   ? "bg-white text-emerald-700 shadow-sm dark:bg-card"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              <Smartphone className="h-3.5 w-3.5" />
+              <Smartphone className="h-3.5 w-3.5 shrink-0" />
               <span>Camera Điện thoại / Zalo (Khuyên dùng)</span>
             </button>
             <button
               type="button"
               onClick={() => setQrMode("RAW")}
-              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors ${
+              className={`min-h-[44px] flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors ${
                 qrMode === "RAW"
                   ? "bg-white text-emerald-700 shadow-sm dark:bg-card"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              <QrCode className="h-3.5 w-3.5" />
+              <QrCode className="h-3.5 w-3.5 shrink-0" />
               <span>Mã token thuần (Kiosk 2D)</span>
             </button>
           </div>
 
           {/* QR Code Container */}
-          <div className="relative flex aspect-square w-64 items-center justify-center rounded-2xl border-4 border-emerald-500/30 bg-white p-3 shadow-inner sm:w-72">
+          <div className="relative flex aspect-square w-56 max-w-full items-center justify-center rounded-2xl border-4 border-emerald-500/30 bg-white p-3 shadow-inner sm:w-72">
             {localQrUrl ? (
               <Image
                 src={localQrUrl}
@@ -219,13 +219,13 @@ export function KioskClient({ initialToken }: { initialToken: KioskTokenDto }) {
           </div>
 
           {/* Mode Explanatory Pill */}
-          <div className="mt-3 text-center">
+          <div className="mt-3 text-center max-w-full">
             {qrMode === "URL" ? (
-              <Badge variant="outline" className="bg-emerald-50 text-emerald-800 border-emerald-200 text-[11px] py-0.5">
+              <Badge variant="outline" className="bg-emerald-50 text-emerald-800 border-emerald-200 text-[11px] py-0.5 whitespace-normal text-center">
                 ⚡ Quét mở ngay trang Chấm công trên điện thoại
               </Badge>
             ) : (
-              <Badge variant="outline" className="bg-slate-50 text-slate-700 border-slate-200 text-[11px] py-0.5">
+              <Badge variant="outline" className="bg-slate-50 text-slate-700 border-slate-200 text-[11px] py-0.5 whitespace-normal text-center">
                 ⚙️ Trả về mã chuỗi thuần 43 ký tự
               </Badge>
             )}
@@ -246,12 +246,12 @@ export function KioskClient({ initialToken }: { initialToken: KioskTokenDto }) {
           </div>
 
           {/* Quick copy tools */}
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-2 w-full">
             <Button
               variant="outline"
               size="sm"
               onClick={handleCopyLink}
-              className="gap-1.5 text-xs"
+              className="gap-1.5 text-xs min-h-[44px]"
             >
               {copiedLink ? (
                 <Check className="h-3.5 w-3.5 text-emerald-600" />
@@ -265,7 +265,7 @@ export function KioskClient({ initialToken }: { initialToken: KioskTokenDto }) {
               variant="outline"
               size="sm"
               onClick={handleCopyToken}
-              className="gap-1.5 text-xs"
+              className="gap-1.5 text-xs min-h-[44px]"
             >
               {copiedToken ? (
                 <Check className="h-3.5 w-3.5 text-emerald-600" />
@@ -280,7 +280,7 @@ export function KioskClient({ initialToken }: { initialToken: KioskTokenDto }) {
               size="sm"
               onClick={fetchNewToken}
               disabled={isLoading}
-              className="gap-1.5 text-xs"
+              className="gap-1.5 text-xs min-h-[44px]"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
               <span>Làm mới</span>

@@ -8,8 +8,7 @@ import { addDaysToDateString } from "@/lib/shift-time";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { MyWeekScheduleDto } from "@/modules/schedules/schedule.types";
-import { SCHEDULE_STATUS_LABELS } from "@/modules/schedules/schedule.service";
+import { SCHEDULE_STATUS_LABELS, type MyWeekScheduleDto } from "@/modules/schedules/schedule.types";
 
 export function MyScheduleClient({
   initialSchedule,
@@ -32,8 +31,8 @@ export function MyScheduleClient({
   return (
     <div className="space-y-5">
       {/* Week Selector */}
-      <div className="flex items-center justify-between gap-2">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
           <h1 className="text-xl font-bold tracking-tight text-slate-900">
             Lịch làm việc của tôi
           </h1>
@@ -47,6 +46,7 @@ export function MyScheduleClient({
             type="button"
             variant="ghost"
             size="sm"
+            className="min-h-[44px] min-w-[44px]"
             onClick={() => changeWeek(-1)}
           >
             <ArrowLeft className="h-4 w-4" />
@@ -58,6 +58,7 @@ export function MyScheduleClient({
             type="button"
             variant="ghost"
             size="sm"
+            className="min-h-[44px] min-w-[44px]"
             onClick={() => changeWeek(1)}
           >
             <ArrowRight className="h-4 w-4" />
@@ -67,7 +68,7 @@ export function MyScheduleClient({
 
       {/* Week Status Banner */}
       {initialSchedule.scheduleStatus ? (
-        <div className="flex items-center justify-between rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-2.5 text-xs text-emerald-800">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-2.5 text-xs text-emerald-800">
           <div className="flex items-center gap-2">
             <Badge variant="default">
               {SCHEDULE_STATUS_LABELS[initialSchedule.scheduleStatus]}

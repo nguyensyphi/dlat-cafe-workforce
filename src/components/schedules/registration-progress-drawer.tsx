@@ -1,22 +1,17 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   Users,
   CheckCircle2,
-  Clock,
-  AlertCircle,
   RefreshCw,
   QrCode,
-  Calendar,
-  Send,
   UserX,
 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -63,7 +58,7 @@ export function RegistrationProgressDrawer({
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"SUBMITTED" | "MISSING">("SUBMITTED");
 
-  const fetchOverview = async () => {
+  const fetchOverview = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -73,18 +68,18 @@ export function RegistrationProgressDrawer({
         throw new Error(json.error?.message || "Không thể tải tiến độ nộp đăng ký");
       }
       setData(json.data);
-    } catch (err: any) {
-      setError(err.message || "Lỗi nạp dữ liệu");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Lỗi nạp dữ liệu");
     } finally {
       setLoading(false);
     }
-  };
+  }, [weekStart]);
 
   useEffect(() => {
     if (open && weekStart) {
       fetchOverview();
     }
-  }, [open, weekStart]);
+  }, [open, weekStart, fetchOverview]);
 
   const submittedList = data?.employees.filter((e) => e.submissionStatus === "SUBMITTED") || [];
   const missingList = data?.employees.filter((e) => e.submissionStatus !== "SUBMITTED") || [];

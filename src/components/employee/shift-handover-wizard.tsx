@@ -17,12 +17,30 @@ import {
   UserCheck,
   Send,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { formatVnd } from "@/lib/currency";
+import {
+  getChecklistForShift,
+  resolveShiftCodeFromShift,
+  validateDailyChecklistCompletion,
+  type DailyChecklistEntry,
+  type DailyChecklistTemplateItem,
+  type DlatShiftCode,
+} from "@/modules/handover/dlat-daily-checklist";
+
+const FALLBACK_SHIFT_OPTIONS: Record<
+  DlatShiftCode,
+  { label: string; name: string; startTime: string; endTime: string }
+> = {
+  CA_1: { label: "Ca 1", name: "Ca 1 (07:00–11:00)", startTime: "07:00", endTime: "11:00" },
+  CA_2: { label: "Ca 2", name: "Ca 2 (11:00–15:00)", startTime: "11:00", endTime: "15:00" },
+  CA_3: { label: "Ca 3", name: "Ca 3 (15:00–19:00)", startTime: "15:00", endTime: "19:00" },
+  CA_4: { label: "Ca 4", name: "Ca 4 (19:00–23:00)", startTime: "19:00", endTime: "23:00" },
+};
 
 export type EquipmentStatus = "GOOD" | "WARNING" | "BROKEN";
 
@@ -39,6 +57,7 @@ interface ShiftHandoverWizardProps {
     name: string;
     startTime: string;
     endTime: string;
+    templateCode?: string | null;
   };
   currentEmployee: {
     id: string;
@@ -50,6 +69,9 @@ interface ShiftHandoverWizardProps {
     fullName: string;
     employeeCode: string;
   }>;
+  initialChecklist?: DailyChecklistEntry[];
+  customTemplates?: Partial<Record<DlatShiftCode, DailyChecklistTemplateItem[]>> | null;
+  previousClosingCashVnd?: number | null;
 }
 
 const DEFAULT_INVENTORY = [
@@ -68,24 +90,12 @@ const DEFAULT_EQUIPMENT: EquipmentItem[] = [
   { name: "Tủ lạnh mát công nghiệp Berjaya", status: "GOOD", note: "Nhiệt độ 4°C đạt chuẩn" },
 ];
 
-const CLEANLINESS_AREAS = [
-  "Quầy pha chế Barista",
-  "Khu vực máy pha & máy xay",
-  "Bồn rửa & khay úp ly",
-  "Tủ mát bảo quản nguyên liệu",
-  "Khu vực thanh toán Thu ngân",
-  "Bàn ghế khu vực khách ngồi",
-  "Thùng rác & phân loại rác",
-  "Sàn nhà & lối đi cửa chính",
-  "Khu vực vệ sinh Restroom",
-];
-
 const STEPS = [
   { num: 1, title: "Ca & Nhân sự", short: "Nhân sự" },
   { num: 2, title: "Kiểm quỹ két", short: "Quỹ két" },
   { num: 3, title: "Kho nguyên liệu", short: "Kho hàng" },
   { num: 4, title: "Thiết bị máy", short: "Máy móc" },
-  { num: 5, title: "Vệ sinh 9 khu vực", short: "Vệ sinh" },
+  { num: 5, title: "Checklist công việc ca", short: "Checklist" },
   { num: 6, title: "Khách hàng", short: "Khách hàng" },
   { num: 7, title: "Việc tồn đọng", short: "Tồn đọng" },
   { num: 8, title: "Ký nhận & Hoàn tất", short: "Ký nhận" },
@@ -95,7 +105,36 @@ export function ShiftHandoverWizard({
   shift,
   currentEmployee,
   colleagues,
+  initialChecklist,
+  customTemplates,
+  previousClosingCashVnd,
 }: ShiftHandoverWizardProps) {
+  const isFallbackShift = shift.id === "shift-today-fallback";
+  const initialShiftCode = resolveShiftCodeFromShift(
+    shift.name,
+    shift.templateCode,
+    shift.startTime,
+  );
+  const [selectedFallbackCode, setSelectedFallbackCode] =
+    useState<DlatShiftCode>(initialShiftCode);
+  const activeShift = isFallbackShift
+    ? {
+        ...shift,
+        name: FALLBACK_SHIFT_OPTIONS[selectedFallbackCode].name,
+        startTime: FALLBACK_SHIFT_OPTIONS[selectedFallbackCode].startTime,
+        endTime: FALLBACK_SHIFT_OPTIONS[selectedFallbackCode].endTime,
+        templateCode: selectedFallbackCode,
+      }
+    : shift;
+
+  const defaultChecklist =
+    initialChecklist ??
+    getChecklistForShift(initialShiftCode, shift.workDate, customTemplates);
+  const defaultOpeningCash =
+    previousClosingCashVnd !== undefined && previousClosingCashVnd !== null
+      ? previousClosingCashVnd
+      : 2000000;
+
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -107,10 +146,10 @@ export function ShiftHandoverWizard({
   );
 
   // 2. Cash Reconciliation
-  const [openingCash, setOpeningCash] = useState<number>(2000000);
-  const [cashSales, setCashSales] = useState<number>(4500000);
-  const [cashExpenses, setCashExpenses] = useState<number>(300000);
-  const [actualCash, setActualCash] = useState<number>(6200000);
+  const [openingCash, setOpeningCash] = useState<number>(defaultOpeningCash);
+  const [cashSales, setCashSales] = useState<number>(0);
+  const [cashExpenses, setCashExpenses] = useState<number>(0);
+  const [actualCash, setActualCash] = useState<number>(defaultOpeningCash);
   const [discrepancyReason, setDiscrepancyReason] = useState("");
 
   const expectedClosing = openingCash + cashSales - cashExpenses;
@@ -123,10 +162,8 @@ export function ShiftHandoverWizard({
   // 4. Equipment
   const [equipment, setEquipment] = useState(DEFAULT_EQUIPMENT);
 
-  // 5. Cleanliness
-  const [cleanliness, setCleanliness] = useState<Record<string, boolean>>(
-    CLEANLINESS_AREAS.reduce((acc, area) => ({ ...acc, [area]: true }), {}),
-  );
+  // 5. D'Lat Daily Checklist
+  const [dailyChecklist, setDailyChecklist] = useState<DailyChecklistEntry[]>(defaultChecklist);
 
   // 6. Orders & Customer notes
   const [customerNotes, setCustomerNotes] = useState("");
@@ -160,7 +197,9 @@ export function ShiftHandoverWizard({
           if (parsed.discrepancyReason !== undefined) setDiscrepancyReason(parsed.discrepancyReason);
           if (parsed.inventory && Array.isArray(parsed.inventory)) setInventory(parsed.inventory);
           if (parsed.equipment && Array.isArray(parsed.equipment)) setEquipment(parsed.equipment);
-          if (parsed.cleanliness && typeof parsed.cleanliness === "object") setCleanliness(parsed.cleanliness);
+          if (parsed.dailyChecklist && Array.isArray(parsed.dailyChecklist)) {
+            setDailyChecklist(parsed.dailyChecklist);
+          }
           if (parsed.customerNotes !== undefined) setCustomerNotes(parsed.customerNotes);
           if (parsed.pendingTasks && Array.isArray(parsed.pendingTasks)) setPendingTasks(parsed.pendingTasks);
           if (parsed.handoverNotes !== undefined) setHandoverNotes(parsed.handoverNotes);
@@ -186,7 +225,7 @@ export function ShiftHandoverWizard({
         discrepancyReason,
         inventory,
         equipment,
-        cleanliness,
+        dailyChecklist,
         customerNotes,
         pendingTasks,
         handoverNotes,
@@ -207,7 +246,7 @@ export function ShiftHandoverWizard({
     discrepancyReason,
     inventory,
     equipment,
-    cleanliness,
+    dailyChecklist,
     customerNotes,
     pendingTasks,
     handoverNotes,
@@ -218,14 +257,14 @@ export function ShiftHandoverWizard({
       if (typeof window !== "undefined") localStorage.removeItem(storageKey);
     } catch {}
     setStep(1);
-    setOpeningCash(2000000);
-    setCashSales(4500000);
-    setCashExpenses(300000);
-    setActualCash(6200000);
+    setOpeningCash(defaultOpeningCash);
+    setCashSales(0);
+    setCashExpenses(0);
+    setActualCash(defaultOpeningCash);
     setDiscrepancyReason("");
     setInventory(DEFAULT_INVENTORY);
     setEquipment(DEFAULT_EQUIPMENT);
-    setCleanliness(CLEANLINESS_AREAS.reduce((acc, area) => ({ ...acc, [area]: true }), {}));
+    setDailyChecklist(defaultChecklist);
     setCustomerNotes("");
     setPendingTasks([
       "Bổ sung đá viên trước giờ cao điểm chiều",
@@ -253,13 +292,32 @@ export function ShiftHandoverWizard({
       return;
     }
 
+    const checklistCheck = validateDailyChecklistCompletion(dailyChecklist);
+    if (!checklistCheck.isValid) {
+      const missingLabels = checklistCheck.missingItems
+        .slice(0, 3)
+        .map((m) => `[${m.stt}] ${m.title}`)
+        .join(", ");
+      setError(
+        `Checklist còn mục chưa hoàn thành nhưng chưa ghi chú lý do (tối thiểu 3 ký tự): ${missingLabels}${checklistCheck.missingItems.length > 3 ? ", ..." : ""}`,
+      );
+      setStep(5);
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await fetch("/api/handovers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          shiftId: shift.id,
+          shiftId: activeShift.id,
+          fallbackShift: isFallbackShift
+            ? {
+                workDate: activeShift.workDate,
+                templateCode: activeShift.templateCode ?? undefined,
+              }
+            : undefined,
           handoverEmployeeId: currentEmployee.id,
           receivingEmployeeId: receivingEmployeeId || undefined,
           reconciliation: {
@@ -280,9 +338,12 @@ export function ShiftHandoverWizard({
             status: e.status,
             note: e.note,
           })),
-          cleanliness: Object.entries(cleanliness).map(([area, isDone]) => ({
-            area,
-            isDone,
+          cleanliness: dailyChecklist.map((item) => ({
+            area: `[${item.stt}] ${item.title}`,
+            isDone: item.done,
+            note: item.note.trim() || undefined,
+            isDueToday: item.isDueToday,
+            scheduleLabel: item.scheduleLabel,
           })),
           customerNotes: customerNotes.trim() || undefined,
           pendingTasks,
@@ -383,15 +444,15 @@ export function ShiftHandoverWizard({
       </div>
 
       {hasRestoredDraft && (
-        <div className="p-3 rounded-xl bg-blue-50/90 text-blue-900 border border-blue-200 flex items-center justify-between text-xs shadow-sm animate-in fade-in">
-          <div className="flex items-center gap-2">
+        <div className="p-3 rounded-xl bg-blue-50/90 text-blue-900 border border-blue-200 flex flex-wrap items-center justify-between gap-2 text-xs shadow-sm animate-in fade-in">
+          <div className="flex items-center gap-2 min-w-0">
             <RotateCcw className="h-4 w-4 text-blue-600 shrink-0" />
             <span>Hệ thống đã tự động khôi phục dữ liệu kiểm kê chưa nộp từ thiết bị của bạn.</span>
           </div>
           <button
             type="button"
             onClick={handleClearDraft}
-            className="text-blue-700 hover:text-blue-900 underline font-medium whitespace-nowrap ml-2"
+            className="text-blue-700 hover:text-blue-900 underline font-medium"
           >
             Xóa nháp & Nhập lại
           </button>
@@ -399,9 +460,12 @@ export function ShiftHandoverWizard({
       )}
 
       {error && (
-        <div className="p-4 rounded-lg bg-red-50 text-red-800 border border-red-200 flex items-center gap-3 text-sm animate-in fade-in">
+        <div
+          role="alert"
+          className="p-4 rounded-lg bg-red-50 text-red-800 border border-red-200 flex items-center gap-3 text-sm animate-in fade-in"
+        >
           <AlertCircle className="h-5 w-5 flex-shrink-0 text-red-600" />
-          <span className="font-medium">{error}</span>
+          <span className="font-medium break-words min-w-0">{error}</span>
         </div>
       )}
 
@@ -420,11 +484,41 @@ export function ShiftHandoverWizard({
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-lg bg-slate-50 border">
               <div>
-                <Label className="text-xs text-muted-foreground">Ca làm việc</Label>
-                <div className="text-sm font-semibold">{shift.name}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">
-                  Ngày {shift.workDate} ({shift.startTime} - {shift.endTime})
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs text-muted-foreground">Ca làm việc</Label>
+                  {isFallbackShift && (
+                    <Badge variant="outline" className="text-[10px] border-amber-300 bg-amber-50 text-amber-800">
+                      Ca phát sinh
+                    </Badge>
+                  )}
                 </div>
+                <div className="text-sm font-semibold">{activeShift.name}</div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  Ngày {activeShift.workDate} ({activeShift.startTime} - {activeShift.endTime})
+                </div>
+                {isFallbackShift && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {(Object.keys(FALLBACK_SHIFT_OPTIONS) as DlatShiftCode[]).map((code) => (
+                      <button
+                        key={code}
+                        type="button"
+                        onClick={() => {
+                          setSelectedFallbackCode(code);
+                          setDailyChecklist(
+                            getChecklistForShift(code, shift.workDate, customTemplates),
+                          );
+                        }}
+                        className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
+                          selectedFallbackCode === code
+                            ? "bg-amber-600 text-white border-amber-600"
+                            : "bg-white text-slate-700 border-slate-200 hover:bg-amber-50"
+                        }`}
+                      >
+                        {FALLBACK_SHIFT_OPTIONS[code].label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">Người giao ca (Tôi)</Label>
@@ -471,8 +565,8 @@ export function ShiftHandoverWizard({
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <div className="flex items-center justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center justify-between gap-1">
                   <Label>Tiền đầu ca (VND)</Label>
                   <span className="text-xs text-muted-foreground font-mono">{formatVnd(openingCash)}</span>
                 </div>
@@ -483,8 +577,8 @@ export function ShiftHandoverWizard({
                   className="mt-1"
                 />
               </div>
-              <div>
-                <div className="flex items-center justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center justify-between gap-1">
                   <Label>Doanh thu tiền mặt theo POS (VND)</Label>
                   <span className="text-xs text-muted-foreground font-mono">{formatVnd(cashSales)}</span>
                 </div>
@@ -495,8 +589,8 @@ export function ShiftHandoverWizard({
                   className="mt-1"
                 />
               </div>
-              <div>
-                <div className="flex items-center justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center justify-between gap-1">
                   <Label>Chi tiền mặt trong ca (VND)</Label>
                   <span className="text-xs text-muted-foreground font-mono">{formatVnd(cashExpenses)}</span>
                 </div>
@@ -507,17 +601,17 @@ export function ShiftHandoverWizard({
                   className="mt-1"
                 />
               </div>
-              <div>
-                <div className="flex items-center justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center justify-between gap-1">
                   <Label className="font-semibold text-amber-900">Tiền đếm thực tế trong két (VND)</Label>
                   <span className="text-xs font-semibold text-emerald-700 font-mono">{formatVnd(actualCash)}</span>
                 </div>
-                <div className="mt-1 flex items-center gap-2">
+                <div className="mt-1 flex flex-wrap sm:flex-nowrap items-center gap-2">
                   <Input
                     type="number"
                     value={actualCash}
                     onChange={(e) => setActualCash(Number(e.target.value))}
-                    className="font-semibold text-emerald-700"
+                    className="font-semibold text-emerald-700 min-w-0 flex-1"
                   />
                   <Button
                     type="button"
@@ -594,12 +688,12 @@ export function ShiftHandoverWizard({
             {inventory.map((item, idx) => (
               <div
                 key={item.item}
-                className="flex items-center justify-between p-3 rounded-lg border bg-slate-50/50 gap-4"
+                className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-lg border bg-slate-50/50 gap-2.5"
               >
-                <div className="flex-1">
-                  <div className="text-sm font-medium">{item.item}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium break-words">{item.item}</div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center justify-between sm:justify-end gap-3">
                   <div className="flex items-center gap-1.5">
                     <Input
                       type="number"
@@ -610,11 +704,11 @@ export function ShiftHandoverWizard({
                           prev.map((it, i) => (i === idx ? { ...it, currentQty: val } : it)),
                         );
                       }}
-                      className="w-24 text-right h-8"
+                      className="w-20 sm:w-24 text-right h-9"
                     />
                     <span className="text-xs text-muted-foreground w-8">{item.unit}</span>
                   </div>
-                  <label className="flex items-center gap-1 text-xs cursor-pointer">
+                  <label className="flex items-center gap-1.5 text-xs cursor-pointer">
                     <input
                       type="checkbox"
                       checked={item.isLow}
@@ -651,8 +745,8 @@ export function ShiftHandoverWizard({
           <CardContent className="space-y-3">
             {equipment.map((eq, idx) => (
               <div key={eq.name} className="p-3 rounded-lg border bg-slate-50/50 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold">{eq.name}</span>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <span className="text-sm font-semibold break-words min-w-0">{eq.name}</span>
                   <select
                     value={eq.status}
                     onChange={(e) => {
@@ -663,7 +757,7 @@ export function ShiftHandoverWizard({
                         ),
                       );
                     }}
-                    className={`text-xs rounded px-2 py-1 font-semibold border ${
+                    className={`text-xs rounded px-2 py-1.5 font-semibold border self-start sm:self-auto ${
                       eq.status === "GOOD"
                         ? "bg-emerald-50 text-emerald-800 border-emerald-300"
                         : eq.status === "WARNING"
@@ -695,41 +789,108 @@ export function ShiftHandoverWizard({
         </Card>
       )}
 
-      {/* Step 5: Cleanliness Standards */}
+      {/* Step 5: D'Lat Daily Shift Checklist */}
       {step === 5 && (
         <Card>
           <CardHeader>
-            <div className="flex items-center gap-2 text-amber-700 font-semibold">
-              <Sparkles className="h-5 w-5" />
-              <span>Bước 5: Tiêu chuẩn vệ sinh 9 khu vực</span>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="flex items-center gap-2 text-amber-700 font-semibold">
+                <Sparkles className="h-5 w-5" />
+                <span>Bước 5: Check Công Việc Ca D&apos;Lat Coffee ({dailyChecklist.length} mục)</span>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setDailyChecklist((prev) =>
+                    prev.map((item) => (item.isDueToday ? { ...item, done: true } : item)),
+                  )
+                }
+                className="text-xs border-emerald-500/40 text-emerald-700 hover:bg-emerald-50"
+              >
+                ✓ Tick nhanh việc hôm nay
+              </Button>
             </div>
             <CardDescription>
-              Đảm bảo 9 khu vực trọng yếu tại quán đã được dọn sạch sẽ trước khi kết ca.
+              Tick hoàn thành từng đầu việc trong ca. Nếu mục cần làm hôm nay chưa làm được, <strong>bắt buộc nhập lý do</strong> vào ô Ghi chú.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {CLEANLINESS_AREAS.map((area) => (
-                <label
-                  key={area}
-                  className={`flex items-center gap-2.5 p-3 rounded-lg border text-sm cursor-pointer transition-colors ${
-                    cleanliness[area]
-                      ? "bg-emerald-50/70 border-emerald-300 text-emerald-900"
-                      : "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
+          <CardContent className="space-y-2.5">
+            {dailyChecklist.map((item, idx) => {
+              const needsReason = item.isDueToday && !item.done && item.note.trim().length < 3;
+              return (
+                <div
+                  key={`${item.stt}-${item.title}`}
+                  className={`p-3 rounded-lg border text-sm transition-colors space-y-2 ${
+                    item.done
+                      ? "bg-emerald-50/60 border-emerald-300"
+                      : item.isDueToday
+                        ? "bg-white border-amber-200"
+                        : "bg-slate-50/70 border-slate-200 opacity-85"
                   }`}
                 >
-                  <input
-                    type="checkbox"
-                    checked={cleanliness[area] ?? false}
-                    onChange={(e) =>
-                      setCleanliness({ ...cleanliness, [area]: e.target.checked })
+                  <div className="flex items-start justify-between gap-3">
+                    <label className="flex items-start gap-2.5 cursor-pointer flex-1">
+                      <input
+                        type="checkbox"
+                        checked={item.done}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setDailyChecklist((prev) =>
+                            prev.map((row, i) => (i === idx ? { ...row, done: checked } : row)),
+                          );
+                        }}
+                        className="mt-1 h-4 w-4 rounded text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <div className="space-y-0.5">
+                        <div className="font-semibold text-slate-900 flex flex-wrap items-center gap-1.5">
+                          <span className="inline-flex h-5 min-w-5 items-center justify-center rounded bg-slate-200 px-1 text-[11px] font-bold text-slate-700">
+                            {item.stt}
+                          </span>
+                          <span>{item.title}</span>
+                          {item.scheduleLabel && (
+                            <Badge
+                              variant="outline"
+                              className={
+                                item.isDueToday
+                                  ? "border-amber-500 bg-amber-100 text-amber-900 text-[10px] px-1.5 py-0"
+                                  : "border-slate-300 text-slate-500 text-[10px] px-1.5 py-0"
+                              }
+                            >
+                              {item.isDueToday
+                                ? `Hôm nay cần làm (${item.scheduleLabel})`
+                                : `Định kỳ ${item.scheduleLabel}`}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground">{item.description}</p>
+                      </div>
+                    </label>
+                  </div>
+
+                  <Input
+                    placeholder={
+                      needsReason
+                        ? "Bắt buộc nhập lý do chưa làm được (tối thiểu 3 ký tự)..."
+                        : "Ghi chú thêm (vd: Đã kiểm, thiếu gói trà...)"
                     }
-                    className="h-4 w-4 rounded text-emerald-600 focus:ring-emerald-500"
+                    value={item.note}
+                    onChange={(e) => {
+                      const nextNote = e.target.value;
+                      setDailyChecklist((prev) =>
+                        prev.map((row, i) => (i === idx ? { ...row, note: nextNote } : row)),
+                      );
+                    }}
+                    className={`h-8 text-xs ${
+                      needsReason
+                        ? "border-rose-400 bg-rose-50/40 focus-visible:ring-rose-500"
+                        : "bg-white"
+                    }`}
                   />
-                  <span>{area}</span>
-                </label>
-              ))}
-            </div>
+                </div>
+              );
+            })}
           </CardContent>
         </Card>
       )}
@@ -774,7 +935,7 @@ export function ShiftHandoverWizard({
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <Input
                 placeholder="Thêm đầu việc cần làm (ví dụ: Nấu thêm sốt caramel, luộc trân châu)..."
                 value={newTaskInput}
@@ -785,8 +946,9 @@ export function ShiftHandoverWizard({
                     handleAddTask();
                   }
                 }}
+                className="min-w-0 flex-1"
               />
-              <Button type="button" onClick={handleAddTask} variant="outline">
+              <Button type="button" onClick={handleAddTask} variant="outline" className="min-h-[44px] shrink-0">
                 Thêm việc
               </Button>
             </div>
@@ -795,18 +957,18 @@ export function ShiftHandoverWizard({
               {pendingTasks.map((task, idx) => (
                 <div
                   key={idx}
-                  className="flex items-center justify-between p-2.5 rounded-lg border bg-slate-50 text-sm"
+                  className="flex items-start justify-between gap-2 p-2.5 rounded-lg border bg-slate-50 text-sm"
                 >
-                  <span className="flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-800 text-xs flex items-center justify-center font-medium">
+                  <span className="flex items-start gap-2 min-w-0 break-words">
+                    <span className="w-5 h-5 shrink-0 rounded-full bg-amber-100 text-amber-800 text-xs flex items-center justify-center font-medium mt-0.5">
                       {idx + 1}
                     </span>
-                    {task}
+                    <span className="min-w-0 break-words">{task}</span>
                   </span>
                   <button
                     type="button"
                     onClick={() => handleRemoveTask(idx)}
-                    className="text-xs text-red-600 hover:text-red-800 px-2 py-1"
+                    className="text-xs text-red-600 hover:text-red-800 px-2 py-1 shrink-0"
                   >
                     Xóa
                   </button>
@@ -839,7 +1001,11 @@ export function ShiftHandoverWizard({
                 <li>Tiền két chênh lệch: {formatVnd(cashDifference)}</li>
                 <li>Nguyên liệu tiêu hao: {inventory.length} mục đã kiểm kê</li>
                 <li>Máy móc thiết bị: {equipment.length} máy đã rà soát</li>
-                <li>Vệ sinh: {Object.values(cleanliness).filter(Boolean).length}/9 khu vực đạt chuẩn</li>
+                <li>
+                  Checklist công việc ca:{" "}
+                  {dailyChecklist.filter((i) => i.isDueToday && i.done).length}/
+                  {dailyChecklist.filter((i) => i.isDueToday).length} đầu việc hôm nay đã hoàn thành
+                </li>
                 <li>Công việc bàn giao ca sau: {pendingTasks.length} nhiệm vụ</li>
               </ul>
             </div>
@@ -864,20 +1030,23 @@ export function ShiftHandoverWizard({
 
       {/* Mobile-Friendly Error Notification Above Action Buttons */}
       {error && (
-        <div className="p-3.5 rounded-lg bg-red-50 text-red-800 border border-red-200 flex items-center gap-2.5 text-sm animate-in fade-in">
+        <div
+          role="alert"
+          className="p-3.5 rounded-lg bg-red-50 text-red-800 border border-red-200 flex items-center gap-2.5 text-sm animate-in fade-in"
+        >
           <AlertCircle className="h-5 w-5 flex-shrink-0 text-red-600" />
-          <span className="font-medium">{error}</span>
+          <span className="font-medium break-words min-w-0">{error}</span>
         </div>
       )}
 
       {/* Navigation Buttons */}
-      <div className="flex items-center justify-between pt-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
         {step > 1 ? (
           <Button
             type="button"
             variant="outline"
             onClick={() => setStep(step - 1)}
-            className="gap-2"
+            className="gap-2 min-h-[44px]"
           >
             <ArrowLeft className="h-4 w-4" /> Quay lại
           </Button>
@@ -886,6 +1055,7 @@ export function ShiftHandoverWizard({
             type="button"
             variant="outline"
             onClick={() => router.push("/employee/attendance")}
+            className="min-h-[44px]"
           >
             Về Chấm công
           </Button>
@@ -894,8 +1064,24 @@ export function ShiftHandoverWizard({
         {step < 8 ? (
           <Button
             type="button"
-            onClick={() => setStep(step + 1)}
-            className="gap-2 bg-amber-700 hover:bg-amber-800 text-white"
+            onClick={() => {
+              if (step === 5) {
+                const checklistCheck = validateDailyChecklistCompletion(dailyChecklist);
+                if (!checklistCheck.isValid) {
+                  const missingLabels = checklistCheck.missingItems
+                    .slice(0, 3)
+                    .map((m) => `[${m.stt}] ${m.title}`)
+                    .join(", ");
+                  setError(
+                    `Checklist còn mục chưa hoàn thành nhưng chưa ghi chú lý do (tối thiểu 3 ký tự): ${missingLabels}${checklistCheck.missingItems.length > 3 ? ", ..." : ""}`,
+                  );
+                  return;
+                }
+              }
+              setError(null);
+              setStep(step + 1);
+            }}
+            className="gap-2 min-h-[44px] bg-amber-700 hover:bg-amber-800 text-white"
           >
             Tiếp theo <ArrowRight className="h-4 w-4" />
           </Button>
@@ -904,11 +1090,12 @@ export function ShiftHandoverWizard({
             type="button"
             onClick={handleSubmit}
             disabled={loading}
-            className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+            className="gap-2 min-h-[44px] h-auto py-2.5 whitespace-normal text-center bg-emerald-600 hover:bg-emerald-700 text-white w-full sm:w-auto"
           >
             {loading ? "Đang nộp..." : (
               <>
-                <Send className="h-4 w-4" /> Hoàn tất & Chấm ra (Clock-out)
+                <Send className="h-4 w-4 shrink-0" />
+                <span>Nộp bàn giao &amp; Tới màn hình Chấm ra</span>
               </>
             )}
           </Button>

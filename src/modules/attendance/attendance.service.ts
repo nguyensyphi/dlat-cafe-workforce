@@ -18,6 +18,7 @@ import { parseOrThrow } from "@/lib/validation";
 import { recordAuditLog } from "@/modules/audit/audit.service";
 import {
   calculateAttendanceTimes,
+  calculateShiftPayableMinutes,
   calculateLateAndEarlyMinutes,
   minutesToDecimalHours,
   type EventItem,
@@ -36,8 +37,10 @@ import type {
 } from "./attendance.types";
 import {
   manualAdjustAttendanceSchema,
+  quickFixClockOutSchema,
   scanQrAttendanceSchema,
 } from "./attendance.validation";
+import { invalidateDashboardCache } from "@/modules/dashboard/dashboard.service";
 
 type AttendanceWithRelations = Prisma.AttendanceGetPayload<{
   include: {
@@ -182,43 +185,9 @@ export class AttendanceService {
     const todayStr = todayDateStringVN(now);
     const workDate = parseDateOnlyUtc(todayStr);
 
-    // Look for active shift assignment for today
-    const assignment = await prisma.shiftAssignment.findFirst({
-      where: {
-        employeeId: employee.id,
-        status: "ASSIGNED",
-        shift: {
-          workDate,
-          schedule: {
-            status: "PUBLISHED",
-          },
-        },
-      },
-      include: {
-        shift: true,
-      },
-      orderBy: {
-        shift: {
-          startAt: "asc",
-        },
-      },
-    });
-
-    const shift = assignment?.shift ?? null;
-
-    // 4. Find or prepare existing attendance record for today
-    const existingAttendance = await prisma.attendance.findFirst({
-      where: {
-        employeeId: employee.id,
-        workDate,
-        ...(shift ? { shiftId: shift.id } : {}),
-      },
-      include: {
-        events: {
-          orderBy: { occurredAt: "asc" },
-        },
-      },
-    });
+    // 3b & 4. Resolve active shift assignment & attendance for multi-shift days (e.g. Ca Sáng + Ca Tối)
+    const { shift, attendance: existingAttendance } =
+      await this.resolveTodayShiftAndAttendance(employee.id, workDate, now);
 
     const pastEvents = existingAttendance?.events ?? [];
     const lastEvent = pastEvents[pastEvents.length - 1];
@@ -255,6 +224,23 @@ export class AttendanceService {
       }
       if (existingAttendance.clockOut) {
         throw new AppValidationError("Bạn đã hoàn thành chấm tan ca rồi.");
+      }
+      const submittedHandover = await prisma.shiftHandover.findFirst({
+        where: {
+          status: { in: ["SUBMITTED", "DISCREPANCY", "CONFIRMED"] },
+          ...(existingAttendance.shiftId
+            ? { shiftId: existingAttendance.shiftId }
+            : {
+                handoverEmployeeId: employee.id,
+                shift: { workDate },
+              }),
+        },
+        select: { id: true },
+      });
+      if (!submittedHandover) {
+        throw new AppValidationError(
+          "Vui lòng nộp Biên bản bàn giao & Checklist ca tại mục Bàn giao ca (/employee/handover) trước khi quét QR Tan ca.",
+        );
       }
     }
 
@@ -341,6 +327,28 @@ export class AttendanceService {
       }
 
       const completionStatus = calc.clockOut ? "COMPLETED" : "IN_PROGRESS";
+
+      // PRD Module D: pay only time inside the shift window (handover included),
+      // rounded to 5 minutes; time past shift end becomes an OT candidate needing review.
+      let approvedMinutes = calc.approvedMinutes;
+      let paidMinutes = calc.paidMinutes;
+      let overtimeMinutes = 0;
+      let overtimeStatus: "NONE" | "PENDING_REVIEW" = "NONE";
+      if (shift && calc.clockIn && calc.clockOut && !calc.isMissingClockOut) {
+        const payable = calculateShiftPayableMinutes({
+          clockIn: calc.clockIn,
+          clockOut: calc.clockOut,
+          shiftStart: shift.startAt,
+          shiftEnd: shift.endAt,
+          breakMinutes: calc.breakMinutes,
+          isPaidBreak: shift.isPaidBreak,
+        });
+        approvedMinutes = payable.payableMinutes;
+        paidMinutes = payable.payableMinutes;
+        overtimeMinutes = payable.overtimeRoundedMinutes;
+        overtimeStatus = payable.otDetected ? "PENDING_REVIEW" : "NONE";
+      }
+
       const anomalyStatus =
         !shift
           ? "OUT_OF_SCHEDULE"
@@ -360,8 +368,11 @@ export class AttendanceService {
           clockOut: calc.clockOut,
           breakMinutes: calc.breakMinutes,
           workedMinutes: calc.workedMinutes,
-          approvedMinutes: calc.approvedMinutes,
-          paidMinutes: calc.paidMinutes,
+          approvedMinutes,
+          paidMinutes,
+          overtimeMinutes,
+          overtimeStatus,
+          isUnscheduled: !shift,
           lateMinutes,
           actualLateMinutes: lateMinutes,
           penaltyLateMinutes: Math.max(0, lateMinutes - 5),
@@ -378,6 +389,8 @@ export class AttendanceService {
         lastEventTime: now,
       };
     });
+
+    invalidateDashboardCache();
 
     const isNowOnBreak = input.eventType === "BREAK_START";
     const eventLabels: Record<string, string> = {
@@ -515,6 +528,92 @@ export class AttendanceService {
   }
 
   /**
+   * Resolves which shift and attendance record apply right now for an employee on `workDate`.
+   * Supports students working multiple shifts on the same day (e.g. Ca Sáng + Ca Tối):
+   *  1. If any attendance record today is currently IN_PROGRESS (clockIn set, clockOut null), return it.
+   *  2. Otherwise, pick the next uncompleted assigned shift whose window hasn't long expired,
+   *     or the uncompleted shift closest in time to `now`.
+   *  3. If all assigned shifts are completed, return the most recently completed shift & attendance.
+   */
+  private async resolveTodayShiftAndAttendance(
+    employeeId: string,
+    workDate: Date,
+    now: Date,
+  ) {
+    const [attendances, assignments] = await Promise.all([
+      prisma.attendance.findMany({
+        where: { employeeId, workDate },
+        orderBy: { createdAt: "asc" },
+        include: {
+          employee: { select: { fullName: true, employeeCode: true } },
+          shift: { select: { name: true } },
+          approvedBy: {
+            select: { email: true, employee: { select: { fullName: true } } },
+          },
+          events: { orderBy: { occurredAt: "asc" } },
+        },
+      }),
+      prisma.shiftAssignment.findMany({
+        where: {
+          employeeId,
+          status: "ASSIGNED",
+          shift: {
+            workDate,
+            status: { not: "CANCELLED" },
+            schedule: { status: "PUBLISHED" },
+          },
+        },
+        include: { shift: true },
+        orderBy: { shift: { startAt: "asc" } },
+      }),
+    ]);
+
+    // 1. Any currently open (clocked-in, not clocked-out) attendance takes top priority
+    const activeOpenAtt = attendances.find((a) => a.clockIn !== null && a.clockOut === null);
+    if (activeOpenAtt) {
+      const matchedShift =
+        assignments.find((asgn) => asgn.shift.id === activeOpenAtt.shiftId)?.shift ?? null;
+      return { shift: matchedShift, attendance: activeOpenAtt };
+    }
+
+    // 2. If employee has assigned shifts today, find uncompleted ones
+    if (assignments.length > 0) {
+      const attByShiftId = new Map(
+        attendances.filter((a) => a.shiftId !== null).map((a) => [a.shiftId!, a]),
+      );
+
+      const uncompleted = assignments.filter((asgn) => {
+        const att = attByShiftId.get(asgn.shift.id);
+        return !att || att.clockOut === null;
+      });
+
+      if (uncompleted.length > 0) {
+        // Prefer the earliest uncompleted shift that has not ended more than 90 minutes ago
+        const cutoffMs = now.getTime() - 90 * 60_000;
+        const timely = uncompleted.find((asgn) => asgn.shift.endAt.getTime() >= cutoffMs);
+        const chosen = timely ?? uncompleted[uncompleted.length - 1]!;
+        return {
+          shift: chosen.shift,
+          attendance: attByShiftId.get(chosen.shift.id) ?? null,
+        };
+      }
+
+      // All assigned shifts today have been completed (clockOut !== null) -> return the last one
+      const lastAssigned = assignments[assignments.length - 1]!;
+      return {
+        shift: lastAssigned.shift,
+        attendance: attByShiftId.get(lastAssigned.shift.id) ?? attendances[attendances.length - 1] ?? null,
+      };
+    }
+
+    // 3. No assigned shifts today (unscheduled attendance)
+    return {
+      shift: null,
+      attendance: attendances[attendances.length - 1] ?? null,
+    };
+  }
+
+  /**
    * Gets today's attendance status for the current employee (used on mobile scanner page).
    */
   async getMyTodayStatus(actor: SessionUser) {
@@ -528,52 +627,24 @@ export class AttendanceService {
     const todayStr = todayDateStringVN(now);
     const workDate = parseDateOnlyUtc(todayStr);
 
-    const [attendance, assignment] = await Promise.all([
-      prisma.attendance.findFirst({
-        where: {
-          employeeId: actor.employeeId,
-          workDate,
-        },
-        include: {
-          employee: {
-            select: { fullName: true, employeeCode: true },
-          },
-          shift: {
-            select: { name: true },
-          },
-          approvedBy: {
-            select: { email: true, employee: { select: { fullName: true } } },
-          },
-          events: {
-            orderBy: { occurredAt: "asc" },
-          },
-        },
-      }),
-      prisma.shiftAssignment.findFirst({
-        where: {
-          employeeId: actor.employeeId,
-          status: "ASSIGNED",
-          shift: {
-            workDate,
-            schedule: { status: "PUBLISHED" },
-          },
-        },
-        include: { shift: true },
-      }),
-    ]);
+    const { shift, attendance } = await this.resolveTodayShiftAndAttendance(
+      actor.employeeId,
+      workDate,
+      now,
+    );
 
     const events = attendance?.events ?? [];
     const lastEvent = events[events.length - 1];
 
     return {
       workDate: todayStr,
-      assignedShift: assignment?.shift
+      assignedShift: shift
         ? {
-            id: assignment.shift.id,
-            name: assignment.shift.name,
-            startTime: formatTimeVN(assignment.shift.startAt),
-            endTime: formatTimeVN(assignment.shift.endAt),
-            breakMinutes: assignment.shift.breakMinutes,
+            id: shift.id,
+            name: shift.name,
+            startTime: formatTimeVN(shift.startAt),
+            endTime: formatTimeVN(shift.endAt),
+            breakMinutes: shift.breakMinutes,
           }
         : null,
       attendance: attendance ? this.mapToDto(attendance) : null,
@@ -615,6 +686,8 @@ export class AttendanceService {
     if (!existing) {
       throw new AppNotFoundError("Không tìm thấy bản ghi chấm công");
     }
+
+    await this.assertNotInLockedPayroll(existing.workDate, existing.payrollStatus);
 
     const updated = await prisma.$transaction(async (tx) => {
       const row = await tx.attendance.update({
@@ -669,6 +742,7 @@ export class AttendanceService {
       return row;
     });
 
+    invalidateDashboardCache();
     return this.mapToDto(updated);
   }
 
@@ -746,6 +820,65 @@ export class AttendanceService {
   }
 
   /**
+   * Phê duyệt hoặc từ chối làm thêm giờ (OT) theo PRD Module D (6.4).
+   * Chỉ khi Quản lý duyệt (APPROVED) thì overtimeMinutes mới được đưa vào tính lương OT.
+   */
+  async reviewOvertime(
+    actor: SessionUser,
+    attendanceId: string,
+    approved: boolean,
+    note?: string,
+  ): Promise<AttendanceDto> {
+    assertPermission(actor.role, "attendance:manage");
+
+    const existing = await prisma.attendance.findUnique({
+      where: { id: attendanceId },
+    });
+    if (!existing) {
+      throw new AppNotFoundError("Không tìm thấy bản ghi chấm công.");
+    }
+
+    await this.assertNotInLockedPayroll(existing.workDate, existing.payrollStatus);
+
+    const nextOtStatus = approved ? "APPROVED" : "REJECTED";
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.attendance.update({
+        where: { id: attendanceId },
+        data: {
+          overtimeStatus: nextOtStatus,
+          version: { increment: 1 },
+        },
+        include: {
+          employee: { select: { fullName: true, employeeCode: true } },
+          shift: { select: { name: true } },
+          approvedBy: {
+            select: { email: true, employee: { select: { fullName: true } } },
+          },
+          events: { orderBy: { occurredAt: "asc" } },
+        },
+      });
+
+      await recordAuditLog(
+        {
+          userId: actor.userId,
+          action: `ATTENDANCE_OVERTIME_${nextOtStatus}`,
+          entityType: "Attendance",
+          entityId: attendanceId,
+          oldValues: { overtimeStatus: existing.overtimeStatus },
+          newValues: { overtimeStatus: nextOtStatus, note },
+        },
+        tx,
+      );
+
+      return row;
+    });
+
+    invalidateDashboardCache();
+    return this.mapToDto(updated);
+  }
+
+  /**
    * Duyệt hàng loạt ca bình thường (không đi trễ, không quên chấm ra)
    */
   async batchApproveAttendances(
@@ -769,6 +902,231 @@ export class AttendanceService {
     }
 
     return { approvedCount, errors };
+  }
+
+  /**
+   * One-tap clock-out fix for Owners/Managers when an employee forgot to clock out.
+   * Defaults `clockOut` to `shift.endAt`, recalculates worked/payable minutes, clears `isMissingClockOut`,
+   * records a MANUAL CLOCK_OUT event + AuditLog, and optionally approves the record in one step.
+   */
+  async quickFixClockOut(
+    actor: SessionUser,
+    attendanceId: string,
+    rawInput: unknown = {},
+  ): Promise<AttendanceDto> {
+    assertPermission(actor.role, "attendance:manage");
+    const input = parseOrThrow(quickFixClockOutSchema, rawInput ?? {});
+
+    const existing = await prisma.attendance.findUnique({
+      where: { id: attendanceId },
+      include: {
+        shift: true,
+        events: { orderBy: { occurredAt: "asc" } },
+        employee: { select: { fullName: true, employeeCode: true } },
+      },
+    });
+
+    if (!existing) {
+      throw new AppNotFoundError("Không tìm thấy bản ghi chấm công");
+    }
+
+    await this.assertNotInLockedPayroll(existing.workDate, existing.payrollStatus);
+
+    if (!existing.clockIn) {
+      throw new AppValidationError(
+        "Bản ghi chưa có giờ vào ca, không thể sửa giờ ra 1 chạm.",
+      );
+    }
+
+    const resolvedClockOut = input.clockOut
+      ? new Date(input.clockOut)
+      : existing.shift?.endAt ?? null;
+
+    if (!resolvedClockOut || Number.isNaN(resolvedClockOut.getTime())) {
+      throw new AppValidationError(
+        "Bản ghi không gắn với ca làm việc nên cần nhập giờ ra cụ thể.",
+      );
+    }
+
+    if (resolvedClockOut.getTime() <= existing.clockIn.getTime()) {
+      throw new AppValidationError("Giờ ra ca phải lớn hơn giờ vào ca.");
+    }
+
+    const defaultReason = existing.shift
+      ? `Quản lý sửa giờ ra 1 chạm theo giờ kết thúc ca (${formatTimeVN(resolvedClockOut)})`
+      : `Quản lý sửa giờ ra 1 chạm (${formatTimeVN(resolvedClockOut)})`;
+    const reason = input.reason?.trim() || defaultReason;
+
+    const existingEventsWithoutClockOut: EventItem[] = existing.events
+      .filter((e) => e.eventType !== "CLOCK_OUT")
+      .map((e) => ({
+        eventType: e.eventType,
+        occurredAt: e.occurredAt,
+      }));
+    const hasClockInEvent = existingEventsWithoutClockOut.some(
+      (e) => e.eventType === "CLOCK_IN",
+    );
+    const fullEvents: EventItem[] = [
+      ...(hasClockInEvent
+        ? []
+        : [{ eventType: "CLOCK_IN" as const, occurredAt: existing.clockIn }]),
+      ...existingEventsWithoutClockOut,
+      { eventType: "CLOCK_OUT", occurredAt: resolvedClockOut },
+    ];
+
+    const calculated = calculateAttendanceTimes({
+      events: fullEvents,
+      scheduledMinutes: existing.scheduledMinutes,
+      shiftEnd: existing.shift?.endAt ?? null,
+    });
+
+    const lateEarly = existing.shift
+      ? calculateLateAndEarlyMinutes({
+          shiftStart: existing.shift.startAt,
+          shiftEnd: existing.shift.endAt,
+          clockIn: existing.clockIn,
+          clockOut: resolvedClockOut,
+          graceMinutes: 5,
+        })
+      : {
+          lateMinutes: existing.lateMinutes,
+          earlyLeaveMinutes: 0,
+          isOnTime: existing.lateMinutes === 0,
+        };
+
+    const shiftPayable = existing.shift
+      ? calculateShiftPayableMinutes({
+          clockIn: existing.clockIn,
+          clockOut: resolvedClockOut,
+          shiftStart: existing.shift.startAt,
+          shiftEnd: existing.shift.endAt,
+          breakMinutes: calculated.breakMinutes,
+          isPaidBreak: existing.shift.isPaidBreak,
+        })
+      : null;
+
+    const payableMinutes = shiftPayable
+      ? shiftPayable.payableMinutes
+      : calculated.workedMinutes;
+    const overtimeMinutes = shiftPayable
+      ? shiftPayable.overtimeRoundedMinutes
+      : 0;
+    const overtimeStatus = shiftPayable?.otDetected
+      ? "PENDING_REVIEW"
+      : "NONE";
+
+    const nextAnomalyStatus =
+      lateEarly.lateMinutes > 5
+        ? "LATE"
+        : lateEarly.earlyLeaveMinutes > 0
+          ? "EARLY_LEAVE"
+          : existing.isUnscheduled
+            ? "OUT_OF_SCHEDULE"
+            : "CLEAN";
+
+    const now = new Date();
+    const nextStatus = input.autoApprove ? "APPROVED" : existing.status;
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.attendanceEvent.create({
+        data: {
+          attendanceId: existing.id,
+          eventType: "CLOCK_OUT",
+          occurredAt: resolvedClockOut,
+          source: "MANUAL",
+          recordedById: actor.userId,
+          note: reason,
+        },
+      });
+
+      const saved = await tx.attendance.update({
+        where: { id: existing.id },
+        data: {
+          clockOut: resolvedClockOut,
+          breakMinutes: calculated.breakMinutes,
+          workedMinutes: calculated.workedMinutes,
+          approvedMinutes: payableMinutes,
+          paidMinutes: payableMinutes,
+          lateMinutes: lateEarly.lateMinutes,
+          actualLateMinutes: lateEarly.lateMinutes,
+          penaltyLateMinutes: Math.max(0, lateEarly.lateMinutes - 5),
+          earlyLeaveMinutes: lateEarly.earlyLeaveMinutes,
+          overtimeMinutes,
+          overtimeStatus,
+          isMissingClockOut: false,
+          completionStatus: "COMPLETED",
+          anomalyStatus: nextAnomalyStatus,
+          approvalStatus: "ADJUSTED",
+          status: nextStatus,
+          approvedById: actor.userId,
+          approvedAt: now,
+          adjustmentReason: reason,
+          version: { increment: 1 },
+        },
+        include: {
+          employee: { select: { fullName: true, employeeCode: true } },
+          shift: { select: { name: true } },
+          approvedBy: {
+            select: { email: true, employee: { select: { fullName: true } } },
+          },
+          events: { orderBy: { occurredAt: "asc" } },
+        },
+      });
+
+      await recordAuditLog(
+        {
+          userId: actor.userId,
+          action: "ATTENDANCE_QUICK_FIX_CLOCK_OUT",
+          entityType: "Attendance",
+          entityId: existing.id,
+          oldValues: {
+            clockOut: existing.clockOut?.toISOString() ?? null,
+            isMissingClockOut: existing.isMissingClockOut,
+            status: existing.status,
+          },
+          newValues: {
+            clockOut: resolvedClockOut.toISOString(),
+            isMissingClockOut: false,
+            workedMinutes: calculated.workedMinutes,
+            paidMinutes: payableMinutes,
+            status: nextStatus,
+          },
+          reason,
+        },
+        tx,
+      );
+
+      return saved;
+    });
+
+    invalidateDashboardCache();
+    return this.mapToDto(updated);
+  }
+
+  /**
+   * Prevents modifying attendance records that belong to a LOCKED or PAID payroll period (KiotViet Rule 6).
+   */
+  private async assertNotInLockedPayroll(workDate: Date, payrollStatus?: string): Promise<void> {
+    if (payrollStatus === "LOCKED") {
+      throw new AppValidationError(
+        "Bản ghi chấm công này đã thuộc kỳ lương khóa sổ, không thể chỉnh sửa.",
+      );
+    }
+
+    const lockedPeriod = await prisma.payrollPeriod.findFirst({
+      where: {
+        status: { in: ["LOCKED", "PAID"] },
+        periodStart: { lte: workDate },
+        periodEnd: { gte: workDate },
+      },
+      select: { name: true },
+    });
+
+    if (lockedPeriod) {
+      throw new AppValidationError(
+        `Ngày công này thuộc kỳ lương "${lockedPeriod.name}" đã chốt/thanh toán, không được sửa trực tiếp.`,
+      );
+    }
   }
 
   private mapToDto(row: AttendanceWithRelations): AttendanceDto {
@@ -805,6 +1163,8 @@ export class AttendanceService {
       lateMinutes: row.lateMinutes,
       earlyLeaveMinutes: row.earlyLeaveMinutes,
       overtimeMinutes: row.overtimeMinutes,
+      overtimeStatus: row.overtimeStatus,
+      isUnscheduled: row.isUnscheduled,
       isMissingClockOut: row.isMissingClockOut,
       status: row.status,
       source: row.source,

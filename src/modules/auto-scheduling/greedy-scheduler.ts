@@ -81,10 +81,38 @@ export class GreedySchedulerEngine implements SchedulingEngine {
     // Availability fast lookup and track actively registered employees
     const availMap = new Map<string, "AVAILABLE" | "PREFERRED" | "UNAVAILABLE">();
     const submittedEmployees = new Set<string>();
+    const empAvailSlotCount = new Map<string, number>();
     for (const av of availabilities) {
       availMap.set(`${av.employeeId}_${av.workDate}_${av.templateId ?? ""}`, av.preference);
       submittedEmployees.add(av.employeeId);
+      if (av.preference === "AVAILABLE" || av.preference === "PREFERRED") {
+        empAvailSlotCount.set(av.employeeId, (empAvailSlotCount.get(av.employeeId) ?? 0) + 1);
+      }
     }
+
+    const empById = new Map<string, EngineEmployee>();
+    for (const emp of employees) {
+      empById.set(emp.id, emp);
+    }
+
+    const isEmployeeSenior = (emp: EngineEmployee, refWorkDate: string): boolean => {
+      if (emp.isSenior !== undefined) return emp.isSenior;
+      const hasExpSkill = emp.skills.some(
+        (s) => s.proficiency === "ADVANCED" || s.proficiency === "INTERMEDIATE",
+      );
+      if (hasExpSkill) return true;
+      if (emp.hireDate) {
+        const hireMs =
+          emp.hireDate instanceof Date
+            ? emp.hireDate.getTime()
+            : new Date(emp.hireDate).getTime();
+        const refMs = new Date(`${refWorkDate}T00:00:00.000Z`).getTime();
+        if (!Number.isNaN(hireMs) && (refMs - hireMs) / 86_400_000 >= 60) {
+          return true;
+        }
+      }
+      return false;
+    };
 
     // Sort shifts:
     // 1. Higher priority or isPeak first
@@ -102,17 +130,40 @@ export class GreedySchedulerEngine implements SchedulingEngine {
 
     // Process each shift
     for (const shift of sortedShifts) {
-      // Build slot demands from requirements or total required staff
+      // Subtract already-pinned assignments from slot demands so we never over-assign or duplicate roles
+      const pinnedForShift = proposedAssignments.filter(
+        (pa) => pa.shiftId === shift.id && pa.isPinned,
+      );
+      const pinnedByPos = new Map<string, number>();
+      for (const pa of pinnedForShift) {
+        pinnedByPos.set(pa.positionId, (pinnedByPos.get(pa.positionId) ?? 0) + 1);
+      }
+
+      const maxAllowed =
+        shift.maxStaff !== null
+          ? Math.max(0, shift.maxStaff - pinnedForShift.length)
+          : Infinity;
+      const targetAdditional = Math.min(
+        maxAllowed,
+        Math.max(0, shift.requiredStaff - pinnedForShift.length),
+      );
+
+      // Build slot demands from requirements or remaining required staff
       const neededSlots: Array<{ positionId?: string; isRequired: boolean }> = [];
 
       for (const req of shift.requirements) {
-        for (let i = 0; i < req.minCount; i++) {
+        const alreadyPinnedInPos = pinnedByPos.get(req.positionId) ?? 0;
+        const remainingReq = Math.max(0, req.minCount - alreadyPinnedInPos);
+        if (alreadyPinnedInPos > 0) {
+          pinnedByPos.set(req.positionId, Math.max(0, alreadyPinnedInPos - req.minCount));
+        }
+        for (let i = 0; i < remainingReq && neededSlots.length < targetAdditional; i++) {
           neededSlots.push({ positionId: req.positionId, isRequired: true });
         }
       }
 
-      // If total requiredStaff > sum of requirements, add generic slots
-      while (neededSlots.length < shift.requiredStaff) {
+      // If remaining requiredStaff > sum of remaining requirements, add generic slots
+      while (neededSlots.length < targetAdditional) {
         neededSlots.push({ isRequired: false });
       }
 
@@ -168,7 +219,7 @@ export class GreedySchedulerEngine implements SchedulingEngine {
             continue;
           }
 
-          // HARD CONSTRAINT 4: Availability Registration
+          // HARD CONSTRAINT 4: Availability Registration & Fixed Rest Day
           const pref =
             availMap.get(`${emp.id}_${shift.workDate}_${shift.templateId ?? ""}`) ??
             "AVAILABLE";
@@ -177,10 +228,26 @@ export class GreedySchedulerEngine implements SchedulingEngine {
             continue;
           }
 
-          // HARD CONSTRAINT 5: Minimum Rest Period
+          const shiftDayOfWeek = new Date(`${shift.workDate}T00:00:00.000Z`).getUTCDay();
+          if (
+            emp.fixedRestDay !== undefined &&
+            emp.fixedRestDay !== null &&
+            emp.fixedRestDay === shiftDayOfWeek &&
+            pref !== "PREFERRED"
+          ) {
+            rejectReasons.push(`${emp.fullName}: ngày nghỉ cố định hàng tuần`);
+            continue;
+          }
+
+          // HARD CONSTRAINT 5: Overnight Minimum Rest Period between different workDays (same-day Sáng/Chiều/Tối allowed)
+          const sameDayShifts = currentShifts.filter((cs) => cs.workDate === shift.workDate);
           const minRestMs = policy.minRestHours * 3600000;
           let restViolated = false;
           for (const cs of currentShifts) {
+            // Same-day shifts (Sáng, Chiều, Tối) are allowed; minRestHours applies to overnight rest across different days
+            if (cs.workDate === shift.workDate) {
+              continue;
+            }
             const gap =
               cs.endAt.getTime() <= shift.startAt.getTime()
                 ? shift.startAt.getTime() - cs.endAt.getTime()
@@ -191,7 +258,7 @@ export class GreedySchedulerEngine implements SchedulingEngine {
             }
           }
           if (restViolated) {
-            rejectReasons.push(`${emp.fullName}: không đủ ${policy.minRestHours}h nghỉ giữa 2 ca`);
+            rejectReasons.push(`${emp.fullName}: không đủ ${policy.minRestHours}h nghỉ qua đêm`);
             continue;
           }
 
@@ -241,15 +308,73 @@ export class GreedySchedulerEngine implements SchedulingEngine {
           let score = 100;
           const explanations: string[] = [];
 
-          // 1. Availability preference & registration incentive
+          // 0. D'Lat Senior Staff Rule: Every shift must have at least 1 senior staff member if available
+          const shiftHasSenior = proposedAssignments.some((pa) => {
+            if (pa.shiftId !== shift.id) return false;
+            const assignedEmp = empById.get(pa.employeeId);
+            return assignedEmp ? isEmployeeSenior(assignedEmp, shift.workDate) : false;
+          });
+          const empIsSenior = isEmployeeSenior(emp, shift.workDate);
+          if (!shiftHasSenior) {
+            if (empIsSenior) {
+              score += 80;
+              explanations.push("Nhân viên cũ nòng cốt của ca");
+            } else {
+              score -= 40;
+              explanations.push("Nhân viên mới (xếp khi ca đã có NV cũ hoặc thiếu NV cũ)");
+            }
+          }
+
+          // 1. Availability preference, registration incentive & multi-shift flexibility bonus
           const hasSubmitted = submittedEmployees.has(emp.id);
           if (pref === "PREFERRED") {
             score += 40;
             explanations.push("Ưu tiên theo nguyện vọng");
           } else if (!hasSubmitted) {
             // Deprioritize unregistered staff so registered employees are chosen first
+            score -= 50;
+            explanations.push("Chưa nộp đăng ký ca tuần này (ưu tiên thấp)");
+          }
+
+          const availCount = empAvailSlotCount.get(emp.id) ?? 0;
+          const targetShifts =
+            emp.desiredShifts ?? Math.max(1, Math.round(emp.weeklyTargetHours / 4.0));
+          const capacityMetric = availCount > 0 ? availCount : targetShifts;
+          const multiShiftBonus = Math.min(20, Math.round(capacityMetric * 1.5));
+          if (multiShiftBonus >= 8) {
+            score += multiShiftBonus;
+          }
+
+          // 1b. Proportional fulfillment balance according to student's desiredShifts / targetShifts
+          if (currentShifts.length < targetShifts) {
+            const fulfillmentRatio = currentShifts.length / targetShifts;
+            const ratioBonus = Math.round((1 - fulfillmentRatio) * 45);
+            score += ratioBonus;
+            if (emp.desiredShifts !== undefined) {
+              explanations.push(`Đáp ứng nguyện vọng (${currentShifts.length}/${emp.desiredShifts} ca)`);
+            }
+          } else {
+            score -= emp.desiredShifts !== undefined ? 180 : 40;
+            explanations.push(`Đã đủ số ca nguyện vọng (${targetShifts} ca/tuần)`);
+          }
+
+          // 1c. Same-day multiple shifts pacing (allow Sáng, Chiều, Tối but spread across staff first)
+          if (sameDayShifts.length === 1) {
+            const first = sameDayShifts[0]!;
+            const sameDayGapMs =
+              first.endAt.getTime() <= shift.startAt.getTime()
+                ? shift.startAt.getTime() - first.endAt.getTime()
+                : first.startAt.getTime() - shift.endAt.getTime();
+            if (sameDayGapMs >= 4 * 3600_000) {
+              score -= 10;
+              explanations.push("Ca thứ 2 trong ngày (ca gãy)");
+            } else {
+              score -= 15;
+              explanations.push("Ca thứ 2 liên tiếp trong ngày");
+            }
+          } else if (sameDayShifts.length >= 2) {
             score -= 30;
-            explanations.push("Chưa nộp đăng ký ca (ưu tiên thấp)");
+            explanations.push("Ca thứ 3 trong ngày");
           }
 
           // 2. Workload balance (encourage reaching weeklyTargetHours)

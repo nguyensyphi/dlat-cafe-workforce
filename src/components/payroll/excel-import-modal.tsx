@@ -7,18 +7,12 @@ import {
   UploadCloud,
   CheckCircle2,
   AlertCircle,
-  FileCheck,
   RefreshCw,
-  Users,
-  Clock,
-  DollarSign,
-  ArrowRight,
 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -69,7 +63,6 @@ export function ExcelImportModal({
   onSuccess,
 }: ExcelImportModalProps) {
   const [step, setStep] = useState<"UPLOAD" | "PREVIEW">("UPLOAD");
-  const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +75,6 @@ export function ExcelImportModal({
     onOpenChange(false);
     setTimeout(() => {
       setStep("UPLOAD");
-      setFile(null);
       setPreview(null);
       setError(null);
     }, 200);
@@ -98,7 +90,6 @@ export function ExcelImportModal({
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
-    setFile(selectedFile);
     setError(null);
     setLoading(true);
 
@@ -118,8 +109,8 @@ export function ExcelImportModal({
 
       setPreview(json.data);
       setStep("PREVIEW");
-    } catch (err: any) {
-      setError(err.message || "Lỗi khi xử lý file Excel");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Lỗi khi xử lý file Excel");
     } finally {
       setLoading(false);
     }
@@ -146,8 +137,8 @@ export function ExcelImportModal({
 
       handleClose();
       onSuccess();
-    } catch (err: any) {
-      setError(err.message || "Lỗi khi áp dụng dữ liệu");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Lỗi khi áp dụng dữ liệu");
     } finally {
       setApplying(false);
     }
@@ -235,14 +226,14 @@ export function ExcelImportModal({
               {/* Instructions */}
               <div className="rounded-xl bg-slate-50 p-4 border border-slate-200 text-xs text-slate-600 space-y-2">
                 <p className="font-semibold text-slate-800 flex items-center gap-1.5">
-                  <span>💡</span> Hướng dẫn nhập file Excel chuẩn cho D'lat Cafe:
+                  <span>💡</span> Hướng dẫn nhập file Excel chuẩn cho D&apos;lat Cafe:
                 </p>
                 <ul className="list-disc pl-5 space-y-1 text-[11px] text-slate-600">
                   <li>
-                    Bạn có thể bấm <strong>"Tải file mẫu Excel"</strong> ở góc trên bên phải để có sẵn danh sách Mã NV và Tên nhân viên quán.
+                    Bạn có thể bấm <strong>&quot;Tải file mẫu Excel&quot;</strong> ở góc trên bên phải để có sẵn danh sách Mã NV và Tên nhân viên quán.
                   </li>
                   <li>
-                    Cột <strong>"Số giờ làm việc"</strong>: Nhập số giờ công thực tế (Ví dụ: <code>140.5</code> hoặc <code>120</code>).
+                    Cột <strong>&quot;Số giờ làm việc&quot;</strong>: Nhập số giờ công thực tế (Ví dụ: <code>140.5</code> hoặc <code>120</code>).
                   </li>
                   <li>
                     Hệ thống sẽ <strong>tự động lấy đơn giá lương theo giờ (PayRate)</strong> có hiệu lực của từng bạn để tính thành tiền, bạn không cần phải tính thủ công.
@@ -349,7 +340,6 @@ export function ExcelImportModal({
                     size="sm"
                     onClick={() => {
                       setStep("UPLOAD");
-                      setFile(null);
                       setPreview(null);
                     }}
                     className="text-xs text-slate-500 hover:text-slate-900"

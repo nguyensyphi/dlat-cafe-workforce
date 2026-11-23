@@ -1,10 +1,18 @@
 import { z } from "zod";
 
+const isoDateTimeStringSchema = (message: string) =>
+  z
+    .string()
+    .trim()
+    .min(1, message)
+    .refine((val) => !Number.isNaN(Date.parse(val)), { message });
+
 export const createLeaveRequestSchema = z
   .object({
     shiftId: z.string().uuid("Ca làm không hợp lệ").optional().nullable(),
-    startAt: z.string().datetime({ message: "Thời gian bắt đầu không hợp lệ" }),
-    endAt: z.string().datetime({ message: "Thời gian kết thúc không hợp lệ" }),
+    startAt: isoDateTimeStringSchema("Thời gian bắt đầu không hợp lệ"),
+    endAt: isoDateTimeStringSchema("Thời gian kết thúc không hợp lệ"),
+    isEmergency: z.boolean().optional().default(false),
     reason: z
       .string()
       .trim()
@@ -24,6 +32,6 @@ export const reviewLeaveRequestSchema = z.object({
   reviewNote: z.string().trim().max(500).optional().nullable(),
 });
 
-export type CreateLeaveRequestInput = z.infer<typeof createLeaveRequestSchema>;
-export type ReviewLeaveRequestInput = z.infer<typeof reviewLeaveRequestSchema>;
+export type CreateLeaveRequestInput = z.input<typeof createLeaveRequestSchema>;
+export type ReviewLeaveRequestInput = z.input<typeof reviewLeaveRequestSchema>;
 

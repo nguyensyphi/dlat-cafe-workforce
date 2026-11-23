@@ -23,11 +23,15 @@ export const metadata: Metadata = {
     icon: "/icons/icon.svg",
     apple: "/icons/icon-192x192.png",
   },
+  other: {
+    "apple-mobile-web-app-capable": "yes",
+  },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  viewportFit: "cover",
   themeColor: "#16a34a",
 };
 

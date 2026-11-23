@@ -19,16 +19,23 @@ interface MyPayrollItem {
   fullName: string;
   positionName: string;
   paidHours: number;
-  hourlyRateVND: bigint;
-  basePayVND: bigint;
-  overtimePayVND: bigint;
-  allowancesVND: bigint;
-  bonusesVND: bigint;
-  deductionsVND: bigint;
-  adjustmentsVND: bigint;
+  hourlyRateVND: bigint | number | string;
+  basePayVND: bigint | number | string;
+  overtimePayVND: bigint | number | string;
+  allowancesVND: bigint | number | string;
+  bonusesVND: bigint | number | string;
+  deductionsVND: bigint | number | string;
+  adjustmentsVND: bigint | number | string;
   adjustmentReason?: string | null;
-  totalPayVND: bigint;
+  totalPayVND: bigint | number | string;
   status: string;
+}
+
+function toBigIntSafe(value: bigint | number | string | null | undefined): bigint {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number") return BigInt(Math.trunc(value));
+  if (typeof value === "string" && value.trim() !== "") return BigInt(value.trim());
+  return 0n;
 }
 
 export function EmployeePayrollClient({
@@ -39,7 +46,10 @@ export function EmployeePayrollClient({
   const [payslipModalOpen, setPayslipModalOpen] = useState(false);
   const [selectedPayslip, setSelectedPayslip] = useState<PayslipData | null>(null);
 
-  const totalEarnedVND = items.reduce((acc, cur) => acc + cur.totalPayVND, 0n);
+  const totalEarnedVND = items.reduce(
+    (acc, cur) => acc + toBigIntSafe(cur.totalPayVND),
+    0n,
+  );
 
   const handleOpenPayslip = (slip: MyPayrollItem) => {
     setSelectedPayslip({
@@ -51,15 +61,15 @@ export function EmployeePayrollClient({
       fullName: slip.fullName,
       positionName: slip.positionName,
       workedHours: slip.paidHours,
-      hourlyRateVND: slip.hourlyRateVND,
-      basePayVND: slip.basePayVND,
-      overtimePayVND: slip.overtimePayVND,
-      allowancesVND: slip.allowancesVND,
-      bonusesVND: slip.bonusesVND,
-      deductionsVND: slip.deductionsVND,
-      adjustmentsVND: slip.adjustmentsVND,
+      hourlyRateVND: toBigIntSafe(slip.hourlyRateVND),
+      basePayVND: toBigIntSafe(slip.basePayVND),
+      overtimePayVND: toBigIntSafe(slip.overtimePayVND),
+      allowancesVND: toBigIntSafe(slip.allowancesVND),
+      bonusesVND: toBigIntSafe(slip.bonusesVND),
+      deductionsVND: toBigIntSafe(slip.deductionsVND),
+      adjustmentsVND: toBigIntSafe(slip.adjustmentsVND),
       adjustmentReason: slip.adjustmentReason,
-      totalPayVND: slip.totalPayVND,
+      totalPayVND: toBigIntSafe(slip.totalPayVND),
     });
     setPayslipModalOpen(true);
   };
@@ -156,7 +166,7 @@ export function EmployeePayrollClient({
                       <div className="text-right">
                         <span className="text-xs text-muted-foreground block">Thực lĩnh:</span>
                         <span className="text-lg font-bold text-emerald-600">
-                          {formatVnd(slip.totalPayVND)}
+                          {formatVnd(toBigIntSafe(slip.totalPayVND))}
                         </span>
                       </div>
                     </div>
@@ -170,39 +180,39 @@ export function EmployeePayrollClient({
                     </div>
                     <div>
                       <span className="text-muted-foreground block">Đơn giá giờ:</span>
-                      <span className="font-medium text-foreground">{formatVnd(slip.hourlyRateVND)}/h</span>
+                      <span className="font-medium text-foreground">{formatVnd(toBigIntSafe(slip.hourlyRateVND))}/h</span>
                     </div>
                     <div>
                       <span className="text-muted-foreground block">Lương cơ bản:</span>
-                      <span className="font-medium text-foreground">{formatVnd(slip.basePayVND)}</span>
+                      <span className="font-medium text-foreground">{formatVnd(toBigIntSafe(slip.basePayVND))}</span>
                     </div>
                     <div>
                       <span className="text-muted-foreground block">Lương tăng ca:</span>
                       <span className="font-medium text-foreground">
-                        {slip.overtimePayVND > 0n ? `+${formatVnd(slip.overtimePayVND)}` : "0 ₫"}
+                        {toBigIntSafe(slip.overtimePayVND) > 0n ? `+${formatVnd(toBigIntSafe(slip.overtimePayVND))}` : "0 ₫"}
                       </span>
                     </div>
                     <div>
                       <span className="text-muted-foreground block">Phụ cấp:</span>
                       <span className="font-medium text-emerald-600">
-                        {slip.allowancesVND > 0n ? `+${formatVnd(slip.allowancesVND)}` : "0 ₫"}
+                        {toBigIntSafe(slip.allowancesVND) > 0n ? `+${formatVnd(toBigIntSafe(slip.allowancesVND))}` : "0 ₫"}
                       </span>
                     </div>
                     <div>
                       <span className="text-muted-foreground block">Thưởng:</span>
                       <span className="font-medium text-emerald-600">
-                        {slip.bonusesVND > 0n ? `+${formatVnd(slip.bonusesVND)}` : "0 ₫"}
+                        {toBigIntSafe(slip.bonusesVND) > 0n ? `+${formatVnd(toBigIntSafe(slip.bonusesVND))}` : "0 ₫"}
                       </span>
                     </div>
                     <div>
                       <span className="text-muted-foreground block">Khấu trừ:</span>
                       <span className="font-medium text-rose-600">
-                        {slip.deductionsVND > 0n ? `-${formatVnd(slip.deductionsVND)}` : "0 ₫"}
+                        {toBigIntSafe(slip.deductionsVND) > 0n ? `-${formatVnd(toBigIntSafe(slip.deductionsVND))}` : "0 ₫"}
                       </span>
                     </div>
                     <div>
                       <span className="text-muted-foreground block">Điều chỉnh:</span>
-                      <span className="font-medium text-foreground">{formatVnd(slip.adjustmentsVND)}</span>
+                      <span className="font-medium text-foreground">{formatVnd(toBigIntSafe(slip.adjustmentsVND))}</span>
                     </div>
                   </div>
 
@@ -210,11 +220,11 @@ export function EmployeePayrollClient({
                     <Button
                       variant="outline"
                       size="sm"
-                      className="gap-1.5 text-xs border-primary/40 text-primary hover:bg-primary/5"
+                      className="min-h-[44px] w-full sm:w-auto gap-1.5 text-xs border-primary/40 text-primary hover:bg-primary/5"
                       onClick={() => handleOpenPayslip(slip)}
                     >
                       <FileText className="h-3.5 w-3.5" />
-                      <span>Xem & Tải phiếu lương chi tiết</span>
+                      <span>Xem &amp; Tải phiếu lương chi tiết</span>
                     </Button>
                   </div>
                 </div>

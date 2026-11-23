@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/auth";
-import { formatDateVN, formatIsoDateOnly } from "@/lib/date";
+import { formatDateVN, formatIsoDateOnly, formatTimeVN } from "@/lib/date";
 import {
   AppConfirmationRequiredError,
   AppNotFoundError,
@@ -10,7 +10,11 @@ import {
 } from "@/lib/permissions";
 import { parseOrThrow } from "@/lib/validation";
 import { recordAuditLog } from "@/modules/audit/audit.service";
-import { createNotifications } from "@/modules/notifications/notification.service";
+import { invalidateDashboardCache } from "@/modules/dashboard/dashboard.service";
+import {
+  createNotifications,
+  dispatchNotificationsToUsers,
+} from "@/modules/notifications/notification.service";
 import {
   evaluateAssignment,
   type AssignmentEvaluation,
@@ -166,7 +170,7 @@ export const scheduleAssignmentService = {
     assertPermission(actor.role, "schedules:manage");
     const data = parseOrThrow(assignEmployeeSchema, rawInput);
 
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       await lockEmployeeForScheduling(tx, data.employeeId);
       const shift = await loadShiftWithContext(tx, shiftId);
 
@@ -288,12 +292,15 @@ export const scheduleAssignmentService = {
 
       return { id: assignment.id, warnings };
     });
+
+    invalidateDashboardCache();
+    return result;
   },
 
   async remove(actor: SessionUser, assignmentId: string) {
     assertPermission(actor.role, "schedules:manage");
 
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const assignment = await tx.shiftAssignment.findUnique({
         where: { id: assignmentId },
         include: {
@@ -351,6 +358,9 @@ export const scheduleAssignmentService = {
 
       return { id: assignmentId };
     });
+
+    invalidateDashboardCache();
+    return result;
   },
 
   /**
@@ -377,7 +387,7 @@ export const scheduleAssignmentService = {
     }
     const reason = input.reason?.trim() || "Có việc đột xuất";
 
-    return prisma.$transaction(async (tx) => {
+    const txResult = await prisma.$transaction(async (tx) => {
       // Lock both employees for scheduling serialization
       await lockEmployeeForScheduling(tx, input.absentEmployeeId);
       await lockEmployeeForScheduling(tx, input.replacementEmployeeId);
@@ -390,6 +400,10 @@ export const scheduleAssignmentService = {
       );
       if (!absentAssignment) {
         throw new AppValidationError("Nhân viên báo nghỉ không có tên trong ca làm này");
+      }
+
+      if (shift.assignments.some((a) => a.employeeId === input.replacementEmployeeId)) {
+        throw new AppValidationError("Nhân viên thay thế đã được phân công trong ca làm này rồi");
       }
 
       // Check replacement employee
@@ -445,8 +459,14 @@ export const scheduleAssignmentService = {
         throw new AppValidationError(`Nhân viên ${replacementEmp.fullName} đang trong kỳ nghỉ phép đã duyệt`);
       }
 
-      // Preserve position from original assignment
-      const targetPositionId = absentAssignment.positionId;
+      // Pick original position if replacement has the skill, otherwise fall back to their primary position
+      const hasOriginalPositionSkill =
+        replacementEmp.primaryPositionId === absentAssignment.positionId ||
+        replacementEmp.skills.some((s) => s.positionId === absentAssignment.positionId);
+
+      const targetPositionId = hasOriginalPositionSkill
+        ? absentAssignment.positionId
+        : replacementEmp.primaryPositionId;
 
       // 1. Mark absent employee assignment as REMOVED
       await tx.shiftAssignment.update({
@@ -533,7 +553,7 @@ export const scheduleAssignmentService = {
           userId: replacementEmp.user.id,
           type: "SCHEDULE_UPDATED",
           title: "⚡ ĐIỀU ĐỘNG THAY CA KHẨN CẤP",
-          message: `Bạn được Quản lý điều động thay ca: ${shift.name} (${shift.startTime} – ${shift.endTime}, ngày ${shiftWorkDateStr}) thay cho ${absentAssignment.employee.fullName} (Lý do: ${reason}). Vui lòng có mặt đúng giờ!`,
+          message: `Bạn được Quản lý điều động thay ca: ${shift.name} (${formatTimeVN(shift.startAt)} – ${formatTimeVN(shift.endAt)}, ngày ${shiftWorkDateStr}) thay cho ${absentAssignment.employee.fullName} (Lý do: ${reason}). Vui lòng có mặt đúng giờ!`,
           linkUrl: `/employee/schedule?week=${formatIsoDateOnly(shift.schedule.weekStart)}`,
         });
       }
@@ -563,14 +583,36 @@ export const scheduleAssignmentService = {
       }
 
       return {
-        success: true,
-        message: `Đã điều động ${replacementEmp.fullName} thay ca khẩn cấp cho ${absentAssignment.employee.fullName}`,
-        absentEmployeeName: absentAssignment.employee.fullName,
-        replacementEmployeeName: replacementEmp.fullName,
-        shiftName: shift.name,
-        shiftDate: shiftWorkDateStr,
+        externalRecipientUserIds: [
+          ...(replacementEmp.user?.id ? [replacementEmp.user.id] : []),
+          ...(absentEmpUser?.user?.id ? [absentEmpUser.user.id] : []),
+        ],
+        weekStartIso: formatIsoDateOnly(shift.schedule.weekStart),
+        startTimeStr: formatTimeVN(shift.startAt),
+        endTimeStr: formatTimeVN(shift.endAt),
+        response: {
+          success: true,
+          message: `Đã điều động ${replacementEmp.fullName} thay ca khẩn cấp cho ${absentAssignment.employee.fullName}`,
+          absentEmployeeName: absentAssignment.employee.fullName,
+          replacementEmployeeName: replacementEmp.fullName,
+          shiftName: shift.name,
+          shiftDate: shiftWorkDateStr,
+        },
       };
     });
+
+    if (txResult.externalRecipientUserIds.length > 0) {
+      await dispatchNotificationsToUsers(txResult.externalRecipientUserIds, {
+        eventType: "SCHEDULE_UPDATED",
+        title: "⚡ ĐIỀU ĐỘNG THAY CA KHẨN CẤP",
+        message: `Điều động thay ca khẩn cấp: ${txResult.response.replacementEmployeeName} thay cho ${txResult.response.absentEmployeeName} trong ca ${txResult.response.shiftName} (${txResult.startTimeStr} – ${txResult.endTimeStr}, ngày ${txResult.response.shiftDate}, lý do: ${reason}).`,
+        linkUrl: `/employee/schedule?week=${txResult.weekStartIso}`,
+        severity: "urgent",
+      });
+    }
+
+    invalidateDashboardCache();
+    return txResult.response;
   },
 
   /**
@@ -584,7 +626,7 @@ export const scheduleAssignmentService = {
     assertPermission(actor.role, "schedules:manage");
     const data = parseOrThrow(moveAssignmentSchema, rawInput);
 
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const sourceAssignment = await tx.shiftAssignment.findUnique({
         where: { id: assignmentId },
         include: {
@@ -735,6 +777,9 @@ export const scheduleAssignmentService = {
 
       return { id: newAssignment.id, warnings };
     });
+
+    invalidateDashboardCache();
+    return result;
   },
 };
 

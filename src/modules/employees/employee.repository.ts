@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { formatIsoDateOnly } from "@/lib/date";
+import { normalizeNotificationPreferences } from "@/modules/notifications/notification.validation";
 import type {
   EmployeeDetailDto,
   EmployeeSummaryDto,
@@ -8,7 +9,14 @@ import type {
 } from "./employee.types";
 
 const summaryInclude = {
-  user: { select: { role: true } },
+  user: {
+    select: {
+      role: true,
+      telegramChatId: true,
+      zaloUserId: true,
+      notificationPreferences: true,
+    },
+  },
   primaryPosition: { select: { id: true, code: true, name: true } },
   skills: {
     include: { position: { select: { id: true, code: true, name: true } } },
@@ -60,6 +68,11 @@ function mapSummary(row: SummaryRecord): EmployeeSummaryDto {
     maxWeeklyHours: Number(row.maxWeeklyHours),
     fixedRestDay: row.fixedRestDay,
     currentHourlyRate: resolveCurrentHourlyRate(row.payRates),
+    telegramChatId: row.user.telegramChatId ?? null,
+    zaloUserId: row.user.zaloUserId ?? null,
+    notificationPreferences: normalizeNotificationPreferences(
+      row.user.notificationPreferences,
+    ),
   };
 }
 

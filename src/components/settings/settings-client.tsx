@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Save } from "lucide-react";
+import { CheckCircle2, Loader2, Save, Send } from "lucide-react";
 import type { UserRole } from "@prisma/client";
 import type { SystemSettingsBundle } from "@/modules/settings/settings.service";
 import { hasPermission } from "@/lib/permissions";
@@ -27,9 +27,45 @@ export function SettingsClient({
   const router = useRouter();
   const canWrite = hasPermission(actorRole, "settings:write");
   const [form, setForm] = useState<SystemSettingsBundle>(initialSettings);
+  const [managerChatIdsText, setManagerChatIdsText] = useState<string>(
+    initialSettings.notificationPolicy.managerTelegramChatIds.join(", "),
+  );
   const [saving, setSaving] = useState(false);
+  const [testingNotif, setTestingNotif] = useState(false);
+  const [testResult, setTestResult] = useState<{
+    sent: number;
+    skipped: number;
+    failed: number;
+    results: Array<{
+      channel: string;
+      status: "SENT" | "SKIPPED" | "FAILED";
+      target?: string | null;
+      reason?: string;
+    }>;
+  } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  async function handleTestNotification() {
+    setTestingNotif(true);
+    setTestResult(null);
+    setErrorMsg(null);
+    try {
+      const res = await fetch("/api/settings/test-notification", {
+        method: "POST",
+      });
+      const payload = await res.json();
+      if (!res.ok || !payload.ok) {
+        setErrorMsg(payload?.error?.message ?? "Không thể gửi thử thông báo");
+        return;
+      }
+      setTestResult(payload.data);
+    } catch {
+      setErrorMsg("Lỗi kết nối máy chủ khi gửi thử thông báo");
+    } finally {
+      setTestingNotif(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -37,10 +73,23 @@ export function SettingsClient({
     setMessage(null);
     setErrorMsg(null);
     try {
+      const parsedManagerChatIds = managerChatIdsText
+        .split(",")
+        .map((id) => id.trim())
+        .filter((id) => id.length > 0);
+
+      const payloadToSave: SystemSettingsBundle = {
+        ...form,
+        notificationPolicy: {
+          ...form.notificationPolicy,
+          managerTelegramChatIds: parsedManagerChatIds,
+        },
+      };
+
       const res = await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payloadToSave),
       });
       const payload = await res.json();
       if (!res.ok || !payload.ok) {
@@ -48,6 +97,9 @@ export function SettingsClient({
         return;
       }
       setForm(payload.data);
+      setManagerChatIdsText(
+        payload.data.notificationPolicy.managerTelegramChatIds.join(", "),
+      );
       setMessage("Đã cập nhật cài đặt vận hành quán thành công");
       router.refresh();
     } finally {
@@ -69,7 +121,7 @@ export function SettingsClient({
         </div>
 
         {canWrite && (
-          <Button type="submit" disabled={saving}>
+          <Button type="submit" disabled={saving} className="min-h-[44px] w-full sm:w-auto">
             <Save className="h-4 w-4" />
             <span>{saving ? "Đang lưu..." : "Lưu thay đổi"}</span>
           </Button>
@@ -342,6 +394,244 @@ export function SettingsClient({
                 }
               />
             </div>
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Chính sách Thông báo &amp; Cảnh báo đa kênh</CardTitle>
+            <CardDescription>
+              Cấu hình kênh gửi Telegram, Zalo, Email và ngưỡng cảnh báo tự động
+              (nhắc ca &amp; chênh lệch tiền két)
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <label className="flex items-center gap-2.5 rounded-lg border border-border bg-slate-50 px-3 py-2.5 text-sm font-medium cursor-pointer min-h-[44px]">
+                <input
+                  id="notif-enable-telegram"
+                  type="checkbox"
+                  disabled={!canWrite}
+                  checked={form.notificationPolicy.enableTelegram}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      notificationPolicy: {
+                        ...form.notificationPolicy,
+                        enableTelegram: e.target.checked,
+                      },
+                    })
+                  }
+                  className="h-4 w-4 rounded border-slate-300 text-emerald-600"
+                />
+                <span>Bật gửi qua Telegram Bot</span>
+              </label>
+
+              <label className="flex items-center gap-2.5 rounded-lg border border-border bg-slate-50 px-3 py-2.5 text-sm font-medium cursor-pointer min-h-[44px]">
+                <input
+                  id="notif-enable-zalo"
+                  type="checkbox"
+                  disabled={!canWrite}
+                  checked={form.notificationPolicy.enableZalo}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      notificationPolicy: {
+                        ...form.notificationPolicy,
+                        enableZalo: e.target.checked,
+                      },
+                    })
+                  }
+                  className="h-4 w-4 rounded border-slate-300 text-emerald-600"
+                />
+                <span>Bật gửi qua Zalo ZNS / OA</span>
+              </label>
+
+              <label className="flex items-center gap-2.5 rounded-lg border border-border bg-slate-50 px-3 py-2.5 text-sm font-medium cursor-pointer min-h-[44px]">
+                <input
+                  id="notif-enable-email"
+                  type="checkbox"
+                  disabled={!canWrite}
+                  checked={form.notificationPolicy.enableEmail}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      notificationPolicy: {
+                        ...form.notificationPolicy,
+                        enableEmail: e.target.checked,
+                      },
+                    })
+                  }
+                  className="h-4 w-4 rounded border-slate-300 text-emerald-600"
+                />
+                <span>Bật gửi qua Email (SMTP / Resend)</span>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="notif-group-tg">
+                  Telegram Chat ID nhóm vận hành quán
+                </Label>
+                <Input
+                  id="notif-group-tg"
+                  disabled={!canWrite}
+                  placeholder="VD: -1001234567890"
+                  value={form.notificationPolicy.groupTelegramChatId ?? ""}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      notificationPolicy: {
+                        ...form.notificationPolicy,
+                        groupTelegramChatId: e.target.value || null,
+                      },
+                    })
+                  }
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="notif-mgr-tg">
+                  Danh sách Telegram Chat ID Quản lý (phân cách bởi dấu phẩy)
+                </Label>
+                <Input
+                  id="notif-mgr-tg"
+                  disabled={!canWrite}
+                  placeholder="VD: 123456789, 987654321"
+                  value={managerChatIdsText}
+                  onChange={(e) => setManagerChatIdsText(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="notif-start-rem">
+                  Nhắc trước giờ vào ca (phút)
+                </Label>
+                <Input
+                  id="notif-start-rem"
+                  type="number"
+                  min={0}
+                  max={180}
+                  disabled={!canWrite}
+                  value={form.notificationPolicy.shiftStartReminderMinutes}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      notificationPolicy: {
+                        ...form.notificationPolicy,
+                        shiftStartReminderMinutes: Number(e.target.value),
+                      },
+                    })
+                  }
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="notif-end-rem">
+                  Nhắc trước giờ tan ca (phút)
+                </Label>
+                <Input
+                  id="notif-end-rem"
+                  type="number"
+                  min={0}
+                  max={180}
+                  disabled={!canWrite}
+                  value={form.notificationPolicy.shiftEndReminderMinutes}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      notificationPolicy: {
+                        ...form.notificationPolicy,
+                        shiftEndReminderMinutes: Number(e.target.value),
+                      },
+                    })
+                  }
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="notif-cash-thresh">
+                  Ngưỡng cảnh báo chênh lệch tiền két (VND)
+                </Label>
+                <Input
+                  id="notif-cash-thresh"
+                  type="number"
+                  min={0}
+                  step={1000}
+                  disabled={!canWrite}
+                  value={form.notificationPolicy.cashDiscrepancyThresholdVnd}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      notificationPolicy: {
+                        ...form.notificationPolicy,
+                        cashDiscrepancyThresholdVnd: Number(e.target.value),
+                      },
+                    })
+                  }
+                />
+              </div>
+            </div>
+
+            {canWrite && (
+              <div className="pt-3 border-t border-border space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-muted-foreground">
+                    Sau khi điền token trong tệp <code>.env</code> và lưu cài đặt, bấm gửi thử để kiểm tra kết nối thực tế.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={testingNotif}
+                    onClick={handleTestNotification}
+                    className="gap-1.5 min-h-[44px] w-full sm:w-auto"
+                  >
+                    {testingNotif ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                    <span>{testingNotif ? "Đang gửi thử..." : "Gửi thử thông báo"}</span>
+                  </Button>
+                </div>
+
+                {testResult && (
+                  <div className="rounded-lg border border-border bg-slate-50 p-3 text-xs space-y-2">
+                    <div className="font-semibold text-slate-800">
+                      Kết quả gửi thử: {testResult.sent} thành công · {testResult.skipped} bỏ qua (chưa cấu hình) · {testResult.failed} lỗi
+                    </div>
+                    <div className="space-y-1">
+                      {testResult.results.map((r, idx) => (
+                        <div
+                          key={`${r.channel}-${idx}`}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded bg-white px-2.5 py-1.5 border border-border/60"
+                        >
+                          <span className="font-medium uppercase text-slate-700">
+                            {r.channel}
+                            {r.target ? ` (${r.target})` : ""}
+                          </span>
+                          <span
+                            className={
+                              r.status === "SENT"
+                                ? "font-semibold text-emerald-700"
+                                : r.status === "SKIPPED"
+                                  ? "font-medium text-amber-700"
+                                  : "font-semibold text-red-700"
+                            }
+                          >
+                            {r.status}
+                            {r.reason ? ` — ${r.reason}` : ""}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

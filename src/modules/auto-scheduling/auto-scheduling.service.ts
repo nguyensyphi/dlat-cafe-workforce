@@ -8,6 +8,7 @@ import {
 } from "@/lib/permissions";
 import { addDaysToDateString, netShiftMinutes } from "@/lib/shift-time";
 import { recordAuditLog } from "@/modules/audit/audit.service";
+import { invalidateDashboardCache } from "@/modules/dashboard/dashboard.service";
 import { createNotifications } from "@/modules/notifications/notification.service";
 import { loadSettingsBundle } from "@/modules/settings/settings.service";
 import {
@@ -100,37 +101,64 @@ export class AutoSchedulingService {
       }),
     ]);
 
-    const engineShifts: EngineShift[] = schedule.shifts.map((s) => ({
-      id: s.id,
-      templateId: s.templateId,
-      name: s.name,
-      workDate: formatIsoDateOnly(s.workDate),
-      startAt: s.startAt,
-      endAt: s.endAt,
-      breakMinutes: s.breakMinutes,
-      netMinutes: netShiftMinutes(s.startAt, s.endAt, s.breakMinutes),
-      requiredStaff: s.requiredStaff,
-      maxStaff: s.maxStaff,
-      priority: s.priority,
-      isPeak: s.isPeak,
-      requirements: s.positionRequirements.map((r) => ({
+    const engineShifts: EngineShift[] = schedule.shifts.map((s) => {
+      const requirements = s.positionRequirements.map((r) => ({
         positionId: r.positionId,
         minCount: r.minCount,
         maxCount: r.maxCount,
-      })),
-    }));
+      }));
 
-    const engineEmployees: EngineEmployee[] = employees.map((e) => ({
-      id: e.id,
-      fullName: e.fullName,
-      employeeCode: e.employeeCode,
-      primaryPositionId: e.primaryPositionId,
-      status: e.status,
-      weeklyTargetHours: Number(e.weeklyTargetHours),
-      maxWeeklyHours: Number(e.maxWeeklyHours),
-      hourlyRate: e.payRates[0]?.hourlyRate ?? BigInt(30000),
-      skills: e.skills,
-    }));
+      return {
+        id: s.id,
+        templateId: s.templateId,
+        name: s.name,
+        workDate: formatIsoDateOnly(s.workDate),
+        startAt: s.startAt,
+        endAt: s.endAt,
+        breakMinutes: s.breakMinutes,
+        netMinutes: netShiftMinutes(s.startAt, s.endAt, s.breakMinutes),
+        requiredStaff: s.requiredStaff,
+        maxStaff: s.maxStaff,
+        priority: s.priority,
+        isPeak: s.isPeak,
+        requirements,
+      };
+    });
+
+    const desiredShiftsMap = new Map<string, number>();
+    for (const a of availabilities) {
+      if (a.note && !desiredShiftsMap.has(a.employeeId)) {
+        const match = a.note.match(/\[Nguyện vọng:\s*(\d+)\s*ca\/tuần\]/);
+        if (match && match[1]) {
+          desiredShiftsMap.set(a.employeeId, parseInt(match[1], 10));
+        }
+      }
+    }
+
+    const engineEmployees: EngineEmployee[] = employees.map((e) => {
+      const tenureDays =
+        (startDate.getTime() - e.hireDate.getTime()) / (24 * 60 * 60 * 1000);
+      const hasExperiencedSkill = e.skills.some(
+        (s) => s.proficiency === "ADVANCED" || s.proficiency === "INTERMEDIATE",
+      );
+      const isSenior = tenureDays >= 60 || hasExperiencedSkill;
+
+      return {
+        id: e.id,
+        fullName: e.fullName,
+        employeeCode: e.employeeCode,
+        primaryPositionId: e.primaryPositionId,
+        status: e.status,
+        weeklyTargetHours: Number(e.weeklyTargetHours),
+        maxWeeklyHours: Number(e.maxWeeklyHours),
+        desiredShifts: desiredShiftsMap.get(e.id),
+        fixedRestDay: e.fixedRestDay,
+        hireDate: e.hireDate,
+        isSenior,
+        hourlyRate: e.payRates[0]?.hourlyRate ?? BigInt(30000),
+        skills: e.skills,
+      };
+    });
 
     const engineAvailabilities: EngineAvailability[] = availabilities.map((a) => ({
       employeeId: a.employeeId,
@@ -185,7 +213,7 @@ export class AutoSchedulingService {
 
     const recommendation = await this.generateRecommendation(actor, weekStart);
 
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const schedule = await tx.schedule.findUniqueOrThrow({
         where: { weekStart: new Date(`${weekStart}T00:00:00.000Z`) },
         include: { shifts: { select: { id: true } } },
@@ -208,11 +236,25 @@ export class AutoSchedulingService {
       );
 
       for (const p of newAssignments) {
-        await tx.shiftAssignment.create({
-          data: {
+        await tx.shiftAssignment.upsert({
+          where: {
+            shiftId_employeeId: {
+              shiftId: p.shiftId,
+              employeeId: p.employeeId,
+            },
+          },
+          update: {
+            positionId: p.positionId,
+            status: "ASSIGNED",
+            assignedById: actor.userId,
+            explanation: p.explanation,
+            isPinned: false,
+          },
+          create: {
             shiftId: p.shiftId,
             employeeId: p.employeeId,
             positionId: p.positionId,
+            status: "ASSIGNED",
             assignedById: actor.userId,
             explanation: p.explanation,
             isPinned: false,
@@ -280,6 +322,8 @@ export class AutoSchedulingService {
         unfilledShifts: recommendation.unfilledShifts,
       };
     });
+    invalidateDashboardCache();
+    return result;
   }
 }
 

@@ -37,15 +37,15 @@ export async function POST(
       }
 
       // Convert serialized string BigInts back to BigInt
-      const sanitizedRows = rows.map((r: any) => ({
+      const sanitizedRows = rows.map((r: Record<string, unknown>) => ({
         ...r,
-        hourlyRateVND: BigInt(r.hourlyRateVND || 0),
-        basePayVND: BigInt(r.basePayVND || 0),
-        allowancesVND: BigInt(r.allowancesVND || 0),
-        bonusesVND: BigInt(r.bonusesVND || 0),
-        deductionsVND: BigInt(r.deductionsVND || 0),
-        totalPayVND: BigInt(r.totalPayVND || 0),
-      }));
+        hourlyRateVND: BigInt(String(r.hourlyRateVND || 0)),
+        basePayVND: BigInt(String(r.basePayVND || 0)),
+        allowancesVND: BigInt(String(r.allowancesVND || 0)),
+        bonusesVND: BigInt(String(r.bonusesVND || 0)),
+        deductionsVND: BigInt(String(r.deductionsVND || 0)),
+        totalPayVND: BigInt(String(r.totalPayVND || 0)),
+      })) as unknown as Parameters<typeof payrollExcelService.applyImport>[1];
 
       const result = await payrollExcelService.applyImport(
         periodId,

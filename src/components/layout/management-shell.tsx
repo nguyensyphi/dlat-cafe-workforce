@@ -12,18 +12,22 @@ import {
   Coffee,
   DollarSign,
   FileText,
+  KeyRound,
   LayoutDashboard,
   Loader2,
+  Menu,
   QrCode,
   Settings,
   Shield,
   UserCircle,
   Users,
+  X,
 } from "lucide-react";
 import type { SessionUser } from "@/lib/jwt";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { NotificationBell } from "@/components/notifications/notification-bell";
+import { ChangePasswordPinModal } from "@/components/auth/change-password-pin-modal";
 import { LogoutButton } from "./logout-button";
 
 const NAV_ITEMS = [
@@ -105,9 +109,12 @@ export function ManagementShell({
 }) {
   const pathname = usePathname();
   const [targetHref, setTargetHref] = useState<string | null>(null);
+  const [securityModalOpen, setSecurityModalOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     setTargetHref(null);
+    setMobileMenuOpen(false);
   }, [pathname]);
 
   const handleNavClick = (href: string) => {
@@ -185,7 +192,7 @@ export function ManagementShell({
           })}
         </nav>
 
-        <div className="border-t border-border p-4 space-y-3">
+        <div className="border-t border-border p-4 space-y-2">
           <Link
             href="/employee/profile"
             onClick={() => handleNavClick("/employee/profile")}
@@ -194,6 +201,14 @@ export function ManagementShell({
             <UserCircle className="h-4 w-4 text-slate-400" />
             <span className="truncate">Hồ sơ cá nhân của tôi</span>
           </Link>
+          <button
+            type="button"
+            onClick={() => setSecurityModalOpen(true)}
+            className="w-full flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-100 text-left"
+          >
+            <KeyRound className="h-4 w-4 text-slate-400" />
+            <span className="truncate">Đổi mật khẩu &amp; PIN</span>
+          </button>
           <div className="flex items-center justify-between gap-2 px-2">
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-slate-900">
@@ -209,13 +224,22 @@ export function ManagementShell({
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex-1 md:pl-64 flex flex-col min-h-screen pb-16 md:pb-0">
-        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-border bg-card/95 backdrop-blur px-4 sm:px-6">
-          <div className="flex items-center gap-2.5 md:hidden">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-white">
+      <div className="flex-1 md:pl-64 flex flex-col min-h-screen pb-[calc(4rem+env(safe-area-inset-bottom,0px))] md:pb-0 min-w-0">
+        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-border bg-card/95 backdrop-blur px-3 sm:px-6 gap-2">
+          <div className="flex items-center gap-2 md:hidden min-w-0">
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(true)}
+              aria-label="Mở menu quản lý"
+              title="Menu quản lý"
+              className="inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-lg border border-border bg-card text-slate-700 hover:bg-slate-100 shrink-0"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white">
               <Coffee className="h-4 w-4" />
             </div>
-            <span className="text-sm font-semibold text-slate-900">
+            <span className="text-sm font-semibold text-slate-900 truncate">
               D&apos;lat Cafe
             </span>
           </div>
@@ -226,8 +250,18 @@ export function ManagementShell({
             <span>Đơn vị tiền tệ: VND (₫)</span>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
             <NotificationBell />
+            <button
+              type="button"
+              onClick={() => setSecurityModalOpen(true)}
+              title="Đổi mật khẩu & Mã PIN"
+              aria-label="Đổi mật khẩu và mã PIN"
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-0"
+            >
+              <KeyRound className="h-4 w-4 text-emerald-600 shrink-0" />
+              <span className="hidden lg:inline">Đổi MK / PIN</span>
+            </button>
             <Badge variant="outline" className="hidden sm:inline-flex">
               {ROLE_LABELS[user.role]}: {user.fullName}
             </Badge>
@@ -235,13 +269,13 @@ export function ManagementShell({
           </div>
         </header>
 
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto min-w-0">
           {children}
         </main>
       </div>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="fixed bottom-0 inset-x-0 z-30 flex md:hidden items-center justify-around border-t border-border bg-card h-16 px-1">
+      <nav className="fixed bottom-0 inset-x-0 z-30 flex md:hidden items-center justify-around border-t border-border bg-card min-h-[64px] pb-[env(safe-area-inset-bottom,0px)] px-1">
         {NAV_ITEMS.filter((item) => ["/dashboard", "/schedules", "/attendance", "/handovers", "/payroll"].includes(item.href)).map((item) => {
           const active =
             item.href === "/dashboard"
@@ -255,7 +289,7 @@ export function ManagementShell({
               href={item.href}
               onClick={() => handleNavClick(item.href)}
               className={cn(
-                "flex flex-col items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-medium cursor-pointer",
+                "flex flex-1 min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-medium cursor-pointer",
                 active ? "text-emerald-700 font-semibold" : "text-slate-500",
               )}
             >
@@ -276,6 +310,114 @@ export function ManagementShell({
           );
         })}
       </nav>
+
+      {/* Mobile Slide-Over Menu Drawer */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 z-50 md:hidden flex"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Menu điều hướng quản lý"
+        >
+          <div
+            className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          <div className="relative z-10 flex w-72 max-w-[85vw] flex-col bg-card shadow-2xl border-r border-border h-full">
+            <div className="flex h-16 items-center justify-between px-4 border-b border-border">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-white">
+                  <Coffee className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-900 leading-none">
+                    D&apos;lat Cafe
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {ROLE_LABELS[user.role]}: {user.fullName}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(false)}
+                aria-label="Đóng menu"
+                className="inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <nav className="flex-1 space-y-1 p-3 overflow-y-auto">
+              {NAV_ITEMS.filter(
+                (item) => !item.ownerOnly || user.role === "OWNER",
+              ).map((item) => {
+                const active =
+                  item.href === "/dashboard"
+                    ? pathname === "/dashboard"
+                    : pathname === item.href ||
+                      pathname.startsWith(`${item.href}/`);
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => {
+                      handleNavClick(item.href);
+                      setMobileMenuOpen(false);
+                    }}
+                    className={cn(
+                      "flex min-h-[44px] items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                      active
+                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200/70"
+                        : "text-slate-700 hover:bg-slate-100",
+                    )}
+                  >
+                    <Icon
+                      className={cn(
+                        "h-4 w-4 shrink-0",
+                        active ? "text-emerald-600" : "text-slate-400",
+                      )}
+                    />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </nav>
+
+            <div className="border-t border-border p-3 space-y-1.5">
+              <Link
+                href="/employee/profile"
+                onClick={() => {
+                  handleNavClick("/employee/profile");
+                  setMobileMenuOpen(false);
+                }}
+                className="flex min-h-[44px] items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+              >
+                <UserCircle className="h-4 w-4 text-slate-400" />
+                <span>Hồ sơ cá nhân</span>
+              </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setSecurityModalOpen(true);
+                }}
+                className="w-full flex min-h-[44px] items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 text-left"
+              >
+                <KeyRound className="h-4 w-4 text-emerald-600" />
+                <span>Đổi mật khẩu &amp; PIN</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ChangePasswordPinModal
+        open={securityModalOpen}
+        onOpenChange={setSecurityModalOpen}
+        hasEmployeeProfile={Boolean(user.employeeId)}
+      />
     </div>
   );
 }

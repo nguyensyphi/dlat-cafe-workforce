@@ -68,6 +68,106 @@ export function calculateLateAndEarlyMinutes({
   };
 }
 
+/**
+ * Rounds minutes to the nearest unit (default 5). Same direction for every value,
+ * per PRD 6.2: never round clock-in and clock-out in opposite directions.
+ */
+export function roundMinutesToUnit(minutes: number, unit = 5): number {
+  if (!Number.isFinite(minutes) || minutes <= 0) return 0;
+  if (unit <= 1) return Math.round(minutes);
+  return Math.round(minutes / unit) * unit;
+}
+
+export interface ShiftPayableInput {
+  clockIn: Date | null;
+  clockOut: Date | null;
+  shiftStart: Date;
+  shiftEnd: Date;
+  breakMinutes?: number;
+  isPaidBreak?: boolean;
+  roundingUnit?: number;
+  overtimeThresholdMinutes?: number;
+}
+
+export interface ShiftPayableResult {
+  /** Raw minutes between clock-in and clock-out (exact, unrounded) */
+  actualMinutes: number;
+  /** Minutes inside the scheduled shift window minus unpaid break (unrounded) */
+  inShiftMinutes: number;
+  /** Payable regular minutes after rounding, capped by scheduled duration */
+  payableMinutes: number;
+  /** Minutes worked after scheduled shift end (exact) */
+  overtimeCandidateMinutes: number;
+  /** Rounded OT minutes (only meaningful when otDetected) */
+  overtimeRoundedMinutes: number;
+  /** True when candidate OT reaches the configured threshold → needs manager review */
+  otDetected: boolean;
+}
+
+/**
+ * PRD Module D – "giờ nằm trong ca" method.
+ * Handover time (last 15 minutes) lies inside the shift window, so it is paid in full.
+ * Early arrival is not paid; late leave becomes an OT candidate that requires approval.
+ */
+export function calculateShiftPayableMinutes({
+  clockIn,
+  clockOut,
+  shiftStart,
+  shiftEnd,
+  breakMinutes = 0,
+  isPaidBreak = false,
+  roundingUnit = 5,
+  overtimeThresholdMinutes = 30,
+}: ShiftPayableInput): ShiftPayableResult {
+  const empty: ShiftPayableResult = {
+    actualMinutes: 0,
+    inShiftMinutes: 0,
+    payableMinutes: 0,
+    overtimeCandidateMinutes: 0,
+    overtimeRoundedMinutes: 0,
+    otDetected: false,
+  };
+  if (!clockIn || !clockOut || clockOut.getTime() <= clockIn.getTime()) {
+    return empty;
+  }
+
+  const MIN = 60_000;
+  const actualMinutes = Math.floor((clockOut.getTime() - clockIn.getTime()) / MIN);
+  const scheduledMinutes = Math.max(
+    0,
+    Math.floor((shiftEnd.getTime() - shiftStart.getTime()) / MIN) -
+      (isPaidBreak ? 0 : breakMinutes),
+  );
+
+  const overlapStart = Math.max(clockIn.getTime(), shiftStart.getTime());
+  const overlapEnd = Math.min(clockOut.getTime(), shiftEnd.getTime());
+  const overlapMinutes =
+    overlapEnd > overlapStart ? Math.floor((overlapEnd - overlapStart) / MIN) : 0;
+
+  const inShiftMinutes = Math.max(0, overlapMinutes - (isPaidBreak ? 0 : breakMinutes));
+  const payableMinutes = Math.min(
+    scheduledMinutes,
+    roundMinutesToUnit(inShiftMinutes, roundingUnit),
+  );
+
+  const overtimeCandidateMinutes =
+    clockOut.getTime() > shiftEnd.getTime()
+      ? Math.floor((clockOut.getTime() - shiftEnd.getTime()) / MIN)
+      : 0;
+  const otDetected = overtimeCandidateMinutes >= overtimeThresholdMinutes;
+
+  return {
+    actualMinutes,
+    inShiftMinutes,
+    payableMinutes,
+    overtimeCandidateMinutes,
+    overtimeRoundedMinutes: otDetected
+      ? roundMinutesToUnit(overtimeCandidateMinutes, roundingUnit)
+      : 0,
+    otDetected,
+  };
+}
+
 export interface CalculateAttendanceTimesInput {
   events: EventItem[];
   scheduledMinutes?: number;

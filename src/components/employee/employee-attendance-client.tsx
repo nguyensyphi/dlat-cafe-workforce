@@ -90,13 +90,23 @@ export function EmployeeAttendanceClient({
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const scannerContainerId = "qr-reader-container";
 
-  // Re-fetch today's status
+  // Re-fetch today's status and auto-advance next expected event type
   const refreshStatus = useCallback(async () => {
     try {
       const res = await fetch("/api/attendance/my?today=true");
       if (res.ok) {
         const json = await res.json();
-        setTodayStatus(json.data);
+        const nextStatus = json.data;
+        setTodayStatus(nextStatus);
+        if (nextStatus?.currentStatus) {
+          if (!nextStatus.currentStatus.hasClockedIn) {
+            setSelectedEventType("CLOCK_IN");
+          } else if (nextStatus.currentStatus.isOnBreak) {
+            setSelectedEventType("BREAK_END");
+          } else if (!nextStatus.currentStatus.hasClockedOut) {
+            setSelectedEventType("CLOCK_OUT");
+          }
+        }
       }
     } catch (err) {
       console.error(err);
@@ -372,7 +382,7 @@ export function EmployeeAttendanceClient({
                         </div>
                         <div className="text-xs text-emerald-700 mt-0.5">
                           {isCompletedToday
-                            ? `Bạn đã hoàn tất ca làm việc hôm nay (${todayStatus?.currentStatus?.clockInTime ? formatTimeVN(todayStatus.currentStatus.clockInTime) : "—"} đến ${todayStatus?.currentStatus?.clockOutTime ? formatTimeVN(todayStatus.currentStatus.clockOutTime) : "—"}). Nếu cần làm ca tiếp theo hoặc bổ sung, vui lòng liên hệ Quản lý.`
+                            ? `Bạn đã hoàn tất ca làm việc hôm nay (${todayStatus?.currentStatus?.clockInTime || "—"} đến ${todayStatus?.currentStatus?.clockOutTime || "—"}). Nếu cần làm ca tiếp theo hoặc bổ sung, vui lòng liên hệ Quản lý.`
                             : `Hệ thống đã nhận diện mã bảo mật cho thao tác [${EVENT_LABELS[selectedEventType]}]. Vui lòng bấm nút bên dưới để xác nhận:`}
                         </div>
                       </div>
@@ -397,7 +407,7 @@ export function EmployeeAttendanceClient({
                   <button
                     type="button"
                     onClick={() => setSelectedEventType("CLOCK_IN")}
-                    className={`flex flex-col items-center justify-center gap-1.5 rounded-xl border p-3 text-center transition-all ${
+                    className={`min-h-[44px] flex flex-col items-center justify-center gap-1.5 rounded-xl border p-3 text-center transition-all ${
                       selectedEventType === "CLOCK_IN"
                         ? "border-emerald-600 bg-emerald-50 text-emerald-900 shadow-sm dark:bg-emerald-950/40 dark:text-emerald-200"
                         : "border-border hover:bg-muted"
@@ -410,7 +420,7 @@ export function EmployeeAttendanceClient({
                   <button
                     type="button"
                     onClick={() => setSelectedEventType("BREAK_START")}
-                    className={`flex flex-col items-center justify-center gap-1.5 rounded-xl border p-3 text-center transition-all ${
+                    className={`min-h-[44px] flex flex-col items-center justify-center gap-1.5 rounded-xl border p-3 text-center transition-all ${
                       selectedEventType === "BREAK_START"
                         ? "border-amber-600 bg-amber-50 text-amber-900 shadow-sm dark:bg-amber-950/40 dark:text-amber-200"
                         : "border-border hover:bg-muted"
@@ -423,7 +433,7 @@ export function EmployeeAttendanceClient({
                   <button
                     type="button"
                     onClick={() => setSelectedEventType("BREAK_END")}
-                    className={`flex flex-col items-center justify-center gap-1.5 rounded-xl border p-3 text-center transition-all ${
+                    className={`min-h-[44px] flex flex-col items-center justify-center gap-1.5 rounded-xl border p-3 text-center transition-all ${
                       selectedEventType === "BREAK_END"
                         ? "border-blue-600 bg-blue-50 text-blue-900 shadow-sm dark:bg-blue-950/40 dark:text-blue-200"
                         : "border-border hover:bg-muted"
@@ -436,7 +446,7 @@ export function EmployeeAttendanceClient({
                   <button
                     type="button"
                     onClick={() => setSelectedEventType("CLOCK_OUT")}
-                    className={`flex flex-col items-center justify-center gap-1.5 rounded-xl border p-3 text-center transition-all ${
+                    className={`min-h-[44px] flex flex-col items-center justify-center gap-1.5 rounded-xl border p-3 text-center transition-all ${
                       selectedEventType === "CLOCK_OUT"
                         ? "border-rose-600 bg-rose-50 text-rose-900 shadow-sm dark:bg-rose-950/40 dark:text-rose-200"
                         : "border-border hover:bg-muted"
@@ -472,9 +482,31 @@ export function EmployeeAttendanceClient({
 
                 {/* Notifications */}
                 {errorMessage && (
-                  <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300">
-                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                    <span>{errorMessage}</span>
+                  <div
+                    role="alert"
+                    data-testid="attendance-error-alert"
+                    className="flex flex-col gap-3 rounded-lg border border-rose-200 bg-rose-50 p-3.5 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"
+                  >
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span>{errorMessage}</span>
+                    </div>
+                    {(errorMessage.includes("/employee/handover") ||
+                      errorMessage.toLowerCase().includes("bàn giao")) && (
+                      <div>
+                        <Link href="/employee/handover">
+                          <Button
+                            type="button"
+                            size="sm"
+                            data-testid="go-to-handover-from-error"
+                            className="bg-amber-600 hover:bg-amber-700 text-white gap-1.5 min-h-[44px]"
+                          >
+                            <ClipboardCheck className="h-4 w-4" />
+                            <span>Điền Biên bản Bàn giao ca ngay</span>
+                          </Button>
+                        </Link>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -530,7 +562,7 @@ export function EmployeeAttendanceClient({
                     }}
                     className="flex flex-col gap-2 sm:flex-row sm:items-end"
                   >
-                    <div className="flex-1 space-y-1">
+                    <div className="flex-1 space-y-1 min-w-0">
                       <Label htmlFor="manual-token" className="text-xs text-muted-foreground">
                         Nhập token thủ công (khi máy ảnh không hoạt động):
                       </Label>
@@ -539,11 +571,13 @@ export function EmployeeAttendanceClient({
                         value={manualToken}
                         onChange={(e) => setManualToken(e.target.value)}
                         placeholder="Dán mã token từ Kiosk..."
+                        className="min-h-[44px] h-11"
                       />
                     </div>
                     <Button
                       type="submit"
                       variant="outline"
+                      className="min-h-[44px] h-11"
                       disabled={loading || !manualToken.trim()}
                     >
                       {loading ? "Đang xử lý..." : "Xác nhận"}

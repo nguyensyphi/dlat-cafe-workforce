@@ -1,5 +1,9 @@
 import { PrismaClient, SkillProficiency, UserRole, EmployeeStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import {
+  DLAT_DAILY_CHECKLIST_SETTING_KEY,
+  DLAT_DAILY_CHECKLIST_TEMPLATES,
+} from "../src/modules/handover/dlat-daily-checklist";
 
 const prisma = new PrismaClient();
 
@@ -118,56 +122,78 @@ async function main() {
     positionMap.set(pos.code, record.id);
   }
 
-  // 3. Shift Templates (3 ca mặc định theo PRD Module 03)
-  const templateDefs = [
+  // 3. Shift Templates – cấu hình vận hành D'Lat (4 ca/ngày, 4 giờ/ca):
+  //    Ca 1: 07:00–11:00, Ca 2: 11:00–15:00, Ca 3: 15:00–19:00, Ca 4: 19:00–23:00.
+  //    15 phút bàn giao nằm trong ca nên được tính lương 100% (isPaidBreak = true).
+  //    Định biên tối thiểu 1 – tối đa 2 người/ca; khi ca có 2 người, bộ xếp lịch tự yêu cầu 1 Ca trưởng.
+  await prisma.shiftTemplate.updateMany({
+    where: { code: { in: ["CA_SANG", "CA_CHIEU", "CA_TOI"] } },
+    data: { isActive: false },
+  });
+  await prisma.shiftTemplate.updateMany({
+    where: { code: "CA_SANG" },
+    data: { name: "Ca Sáng (cũ)" },
+  });
+
+  const templateDefs: Array<{
+    code: string;
+    name: string;
+    startTime: string;
+    endTime: string;
+    breakMinutes: number;
+    minStaff: number;
+    maxStaff: number;
+    priority: number;
+    isPeak: boolean;
+    requirements: Array<{ posCode: string; minCount: number; maxCount: number }>;
+  }> = [
     {
-      code: "CA_SANG",
-      name: "Ca Sáng",
-      startTime: "06:00",
-      endTime: "12:00",
+      code: "CA_1",
+      name: "Ca 1 (07:00–11:00)",
+      startTime: "07:00",
+      endTime: "11:00",
       breakMinutes: 0,
-      minStaff: 4,
-      maxStaff: 6,
-      priority: 2,
-      isPeak: true,
-      requirements: [
-        { posCode: "TRUONG_CA", minCount: 1, maxCount: 1 },
-        { posCode: "PHA_CHE", minCount: 1, maxCount: 2 },
-        { posCode: "THU_NGAN", minCount: 1, maxCount: 1 },
-        { posCode: "PHUC_VU", minCount: 1, maxCount: 2 },
-      ],
-    },
-    {
-      code: "CA_CHIEU",
-      name: "Ca Chiều",
-      startTime: "12:00",
-      endTime: "18:00",
-      breakMinutes: 0,
-      minStaff: 3,
-      maxStaff: 5,
+      minStaff: 1,
+      maxStaff: 2,
       priority: 1,
       isPeak: false,
-      requirements: [
-        { posCode: "PHA_CHE", minCount: 1, maxCount: 2 },
-        { posCode: "THU_NGAN", minCount: 1, maxCount: 1 },
-        { posCode: "PHUC_VU", minCount: 1, maxCount: 2 },
-      ],
+      requirements: [],
     },
     {
-      code: "CA_TOI",
-      name: "Ca Tối",
-      startTime: "18:00",
+      code: "CA_2",
+      name: "Ca 2 (11:00–15:00)",
+      startTime: "11:00",
+      endTime: "15:00",
+      breakMinutes: 0,
+      minStaff: 1,
+      maxStaff: 2,
+      priority: 1,
+      isPeak: false,
+      requirements: [],
+    },
+    {
+      code: "CA_3",
+      name: "Ca 3 (15:00–19:00)",
+      startTime: "15:00",
+      endTime: "19:00",
+      breakMinutes: 0,
+      minStaff: 1,
+      maxStaff: 2,
+      priority: 1,
+      isPeak: false,
+      requirements: [],
+    },
+    {
+      code: "CA_4",
+      name: "Ca 4 (19:00–23:00)",
+      startTime: "19:00",
       endTime: "23:00",
       breakMinutes: 0,
-      minStaff: 4,
-      maxStaff: 6,
+      minStaff: 1,
+      maxStaff: 2,
       priority: 2,
       isPeak: true,
-      requirements: [
-        { posCode: "TRUONG_CA", minCount: 1, maxCount: 1 },
-        { posCode: "PHA_CHE", minCount: 2, maxCount: 2 },
-        { posCode: "PHUC_VU", minCount: 1, maxCount: 3 },
-      ],
+      requirements: [],
     },
   ];
 
@@ -195,6 +221,16 @@ async function main() {
         maxStaff: tpl.maxStaff,
         priority: tpl.priority,
         isPeak: tpl.isPeak,
+      },
+    });
+
+    // Remove legacy per-position requirements no longer in the D'Lat config
+    await prisma.shiftTemplateRequirement.deleteMany({
+      where: {
+        templateId: template.id,
+        positionId: {
+          notIn: tpl.requirements.map((r) => positionMap.get(r.posCode)!),
+        },
       },
     });
 
@@ -616,6 +652,20 @@ async function main() {
   console.log("   - Chủ quán: owner@dlatcafe.vn / Admin@123");
   console.log("   - Quản lý:  manager@dlatcafe.vn / Admin@123");
   console.log("   - Nhân viên: nam.le@dlatcafe.vn / Staff@123 (và 11 nhân sự khác)");
+
+  // 5. Lưu cấu hình Checklist Daily 4 ca D'Lat Coffee vào SystemSetting (cục bộ)
+  await prisma.systemSetting.upsert({
+    where: { key: DLAT_DAILY_CHECKLIST_SETTING_KEY },
+    update: {
+      value: JSON.parse(JSON.stringify(DLAT_DAILY_CHECKLIST_TEMPLATES)),
+      description: "Mẫu Checklist công việc hàng ngày 4 ca D'Lat Coffee (tự động nhận diện theo thứ)",
+    },
+    create: {
+      key: DLAT_DAILY_CHECKLIST_SETTING_KEY,
+      value: JSON.parse(JSON.stringify(DLAT_DAILY_CHECKLIST_TEMPLATES)),
+      description: "Mẫu Checklist công việc hàng ngày 4 ca D'Lat Coffee (tự động nhận diện theo thứ)",
+    },
+  });
 }
 
 main()

@@ -1,4 +1,23 @@
 import { z } from "zod";
+import { notificationPreferencesSchema } from "@/modules/notifications/notification.validation";
+
+function optionalNullableContactId(maxLen = 100) {
+  return z
+    .string()
+    .trim()
+    .max(maxLen, `Mã định danh tối đa ${maxLen} ký tự`)
+    .optional()
+    .nullable()
+    .transform((v) => {
+      if (v === undefined) {
+        return undefined;
+      }
+      if (v === null || v === "") {
+        return null;
+      }
+      return v;
+    });
+}
 
 const skillInputSchema = z.object({
   positionId: z.string().uuid("Mã vị trí kỹ năng không hợp lệ"),
@@ -70,6 +89,9 @@ export const createEmployeeSchema = z
       .optional()
       .nullable(),
     internalNotes: z.string().trim().max(1000).optional().nullable(),
+    telegramChatId: optionalNullableContactId(100),
+    zaloUserId: optionalNullableContactId(100),
+    notificationPreferences: notificationPreferencesSchema.optional(),
   })
   .refine((data) => data.weeklyTargetHours <= data.maxWeeklyHours, {
     message: "Giờ mục tiêu mỗi tuần không được vượt quá giới hạn giờ tối đa tuần",
@@ -93,6 +115,15 @@ export const updateEmployeeSchema = z
     fixedRestDay: z.number().int().min(0).max(6).optional().nullable(),
     internalNotes: z.string().trim().max(1000).optional().nullable(),
     newPassword: z.string().min(6).max(100).optional(),
+    telegramChatId: optionalNullableContactId(100),
+    zaloUserId: optionalNullableContactId(100),
+    notificationPreferences: z
+      .object({
+        telegram: z.boolean().optional(),
+        zalo: z.boolean().optional(),
+        email: z.boolean().optional(),
+      })
+      .optional(),
   })
   .refine(
     (data) =>
@@ -126,8 +157,31 @@ export const setEmployeeStatusSchema = z.object({
     .max(500),
 });
 
+export const updateSelfNotificationsSchema = z
+  .object({
+    telegramChatId: optionalNullableContactId(100),
+    zaloUserId: optionalNullableContactId(100),
+    notificationPreferences: z
+      .object({
+        telegram: z.boolean().optional(),
+        zalo: z.boolean().optional(),
+        email: z.boolean().optional(),
+      })
+      .optional(),
+  })
+  .refine(
+    (data) =>
+      data.telegramChatId !== undefined ||
+      data.zaloUserId !== undefined ||
+      data.notificationPreferences !== undefined,
+    { message: "Cần cung cấp ít nhất một thông tin thông báo để cập nhật" },
+  );
+
 export type CreateEmployeeInput = z.input<typeof createEmployeeSchema>;
 export type UpdateEmployeeInput = z.input<typeof updateEmployeeSchema>;
 export type AddPayRateInput = z.input<typeof addPayRateSchema>;
 export type SetEmployeeStatusInput = z.input<typeof setEmployeeStatusSchema>;
+export type UpdateSelfNotificationsInput = z.input<
+  typeof updateSelfNotificationsSchema
+>;
 

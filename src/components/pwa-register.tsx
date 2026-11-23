@@ -26,16 +26,26 @@ export function PwaRegister() {
       return;
     }
 
-    window.addEventListener("load", () => {
+    const registerSw = () => {
       navigator.serviceWorker
-        .register("/sw.js")
+        .register("/sw.js", { scope: "/" })
         .then((registration) => {
           console.log("[PWA] Service Worker registered:", registration.scope);
         })
         .catch((error) => {
           console.warn("[PWA] Service Worker registration failed:", error);
         });
-    });
+    };
+
+    if (
+      document.readyState === "complete" ||
+      document.readyState === "interactive"
+    ) {
+      registerSw();
+    } else {
+      window.addEventListener("load", registerSw, { once: true });
+      return () => window.removeEventListener("load", registerSw);
+    }
   }, []);
 
   return null;

@@ -5,9 +5,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
+  CheckCircle2,
   DollarSign,
   Edit2,
   History,
+  KeyRound,
   Power,
   ShieldCheck,
 } from "lucide-react";
@@ -87,6 +89,11 @@ export function EmployeeDetailClient({
   const [internalNotes, setInternalNotes] = useState(
     employee.internalNotes ?? "",
   );
+  const [telegramChatId, setTelegramChatId] = useState(
+    employee.telegramChatId ?? "",
+  );
+  const [zaloUserId, setZaloUserId] = useState(employee.zaloUserId ?? "");
+  const [notifPrefs, setNotifPrefs] = useState(employee.notificationPreferences);
   const [skillsMap, setSkillsMap] = useState<Record<string, SkillProficiency>>(
     () => {
       const m: Record<string, SkillProficiency> = {};
@@ -111,8 +118,64 @@ export function EmployeeDetailClient({
   const [statusOpen, setStatusOpen] = useState(false);
   const [statusReason, setStatusReason] = useState("");
 
+  // Reset credentials dialog state
+  const [credOpen, setCredOpen] = useState(false);
+  const [resetNewPassword, setResetNewPassword] = useState("");
+  const [resetNewPin, setResetNewPin] = useState("");
+  const [resetPinToDefault, setResetPinToDefault] = useState(false);
+  const [credSuccessMsg, setCredSuccessMsg] = useState<string | null>(null);
+
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  async function handleResetCredentials(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setErrorMsg(null);
+    setCredSuccessMsg(null);
+
+    try {
+      const payload: Record<string, unknown> = {};
+      if (resetNewPassword.trim()) {
+        payload.newPassword = resetNewPassword;
+      }
+      if (resetNewPin.trim()) {
+        payload.newPin = resetNewPin.trim();
+      } else if (resetPinToDefault) {
+        payload.resetPinToDefault = true;
+      }
+
+      const res = await fetch(`/api/employees/${employee.id}/credentials`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        setErrorMsg(
+          json?.error?.message ?? "Không thể cấp lại mật khẩu / mã PIN",
+        );
+        return;
+      }
+
+      const parts: string[] = [];
+      if (json.data?.passwordUpdated) parts.push("mật khẩu đăng nhập");
+      if (json.data?.pinUpdated) parts.push("mã PIN mới");
+      if (json.data?.pinResetToDefault)
+        parts.push("khôi phục PIN về 4 số cuối SĐT");
+      setCredSuccessMsg(
+        `Đã cập nhật thành công: ${parts.join(", ")} cho ${employee.fullName}.`,
+      );
+      setResetNewPassword("");
+      setResetNewPin("");
+      setResetPinToDefault(false);
+      router.refresh();
+    } catch {
+      setErrorMsg("Lỗi kết nối máy chủ");
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   async function handleSaveProfile(e: React.FormEvent) {
     e.preventDefault();
@@ -138,6 +201,9 @@ export function EmployeeDetailClient({
           maxWeeklyHours: Number(maxWeeklyHours),
           fixedRestDay: fixedRestDay === "" ? null : Number(fixedRestDay),
           internalNotes: internalNotes || null,
+          telegramChatId: telegramChatId.trim() || null,
+          zaloUserId: zaloUserId.trim() || null,
+          notificationPreferences: notifPrefs,
         }),
       });
       const payload = await res.json();
@@ -209,18 +275,18 @@ export function EmployeeDetailClient({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-w-0">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="space-y-1">
+        <div className="space-y-1 min-w-0">
           <Link
             href="/employees"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-slate-900"
+            className="inline-flex min-h-[44px] sm:min-h-0 items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-slate-900"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
             <span>Quay lại danh bạ nhân sự</span>
           </Link>
-          <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 break-words">
               {employee.fullName}
             </h1>
             <code className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
@@ -241,6 +307,7 @@ export function EmployeeDetailClient({
             <Button
               type="button"
               variant="outline"
+              className="min-h-[44px] sm:min-h-0"
               onClick={() => {
                 setErrorMsg(null);
                 setWageOpen(true);
@@ -255,6 +322,23 @@ export function EmployeeDetailClient({
               <Button
                 type="button"
                 variant="outline"
+                className="min-h-[44px] sm:min-h-0"
+                onClick={() => {
+                  setErrorMsg(null);
+                  setCredSuccessMsg(null);
+                  setResetNewPassword("");
+                  setResetNewPin("");
+                  setResetPinToDefault(false);
+                  setCredOpen(true);
+                }}
+              >
+                <KeyRound className="h-4 w-4" />
+                <span>Cấp lại MK / PIN</span>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-[44px] sm:min-h-0"
                 onClick={() => {
                   setErrorMsg(null);
                   setEditOpen(true);
@@ -265,6 +349,7 @@ export function EmployeeDetailClient({
               </Button>
               <Button
                 type="button"
+                className="min-h-[44px] sm:min-h-0"
                 variant={
                   employee.status === "ACTIVE" ? "destructive" : "default"
                 }
@@ -287,7 +372,7 @@ export function EmployeeDetailClient({
 
       {/* Info Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-2">
+        <Card className="lg:col-span-2 min-w-0">
           <CardHeader>
             <CardTitle>Thông tin cá nhân &amp; Định mức làm việc</CardTitle>
             <CardDescription>
@@ -295,9 +380,9 @@ export function EmployeeDetailClient({
             </CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-            <div>
+            <div className="min-w-0">
               <p className="text-xs text-muted-foreground">Email đăng nhập</p>
-              <p className="font-medium text-slate-900 mt-0.5">
+              <p className="font-medium text-slate-900 mt-0.5 break-all">
                 {employee.email}
               </p>
             </div>
@@ -337,6 +422,54 @@ export function EmployeeDetailClient({
                   : DAY_OF_WEEK_LABELS_VN[employee.fixedRestDay]}
               </p>
             </div>
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground">Telegram Chat ID</p>
+              <p className="font-medium text-slate-900 mt-0.5 break-all">
+                {employee.telegramChatId || "Chưa cấu hình"}
+              </p>
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground">Zalo User ID</p>
+              <p className="font-medium text-slate-900 mt-0.5 break-all">
+                {employee.zaloUserId || "Chưa cấu hình"}
+              </p>
+            </div>
+            <div className="sm:col-span-2">
+              <p className="text-xs text-muted-foreground mb-1.5">
+                Kênh nhận thông báo đa kênh
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Badge
+                  variant={
+                    employee.notificationPreferences.telegram
+                      ? "default"
+                      : "secondary"
+                  }
+                >
+                  Telegram:{" "}
+                  {employee.notificationPreferences.telegram ? "Bật" : "Tắt"}
+                </Badge>
+                <Badge
+                  variant={
+                    employee.notificationPreferences.zalo
+                      ? "default"
+                      : "secondary"
+                  }
+                >
+                  Zalo: {employee.notificationPreferences.zalo ? "Bật" : "Tắt"}
+                </Badge>
+                <Badge
+                  variant={
+                    employee.notificationPreferences.email
+                      ? "default"
+                      : "secondary"
+                  }
+                >
+                  Email:{" "}
+                  {employee.notificationPreferences.email ? "Bật" : "Tắt"}
+                </Badge>
+              </div>
+            </div>
             <div className="sm:col-span-2">
               <p className="text-xs text-muted-foreground mb-1.5">
                 Chức vụ chính &amp; Kỹ năng đảm nhiệm
@@ -357,7 +490,7 @@ export function EmployeeDetailClient({
                 <p className="text-xs font-medium text-slate-500">
                   Ghi chú nội bộ quản lý:
                 </p>
-                <p className="text-sm text-slate-800 mt-1">
+                <p className="text-sm text-slate-800 mt-1 break-words">
                   {employee.internalNotes}
                 </p>
               </div>
@@ -402,7 +535,7 @@ export function EmployeeDetailClient({
 
       {/* Pay Rate History & Employment History */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
+        <Card className="min-w-0 overflow-hidden">
           <CardHeader>
             <CardTitle>Lịch sử mức lương</CardTitle>
             <CardDescription>
@@ -410,40 +543,71 @@ export function EmployeeDetailClient({
             </CardDescription>
           </CardHeader>
           <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Đơn giá / giờ</TableHead>
-                  <TableHead>Hiệu lực từ</TableHead>
-                  <TableHead>Đến ngày</TableHead>
-                  <TableHead>Ghi chú</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {employee.payRates.map((rate) => (
-                  <TableRow key={rate.id}>
-                    <TableCell className="font-semibold text-emerald-700">
-                      {formatVnd(rate.hourlyRate)}
-                    </TableCell>
-                    <TableCell>{formatDateVN(rate.effectiveFrom)}</TableCell>
-                    <TableCell>
-                      {rate.effectiveTo ? (
-                        formatDateVN(rate.effectiveTo)
-                      ) : (
-                        <Badge variant="default">Đang áp dụng</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-xs text-slate-600">
-                      {rate.note || "—"}
-                    </TableCell>
+            {/* Mobile Card List (< md) */}
+            <div className="md:hidden divide-y divide-border">
+              {employee.payRates.map((rate) => (
+                <div key={rate.id} className="px-4 py-3 space-y-1.5 text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-semibold text-emerald-700">
+                      {formatVnd(rate.hourlyRate)} / giờ
+                    </span>
+                    {rate.effectiveTo ? (
+                      <span className="text-xs text-muted-foreground">
+                        Đến {formatDateVN(rate.effectiveTo)}
+                      </span>
+                    ) : (
+                      <Badge variant="default">Đang áp dụng</Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Hiệu lực từ: <span className="text-foreground font-medium">{formatDateVN(rate.effectiveFrom)}</span>
+                  </p>
+                  {rate.note && (
+                    <p className="text-xs text-slate-600 break-words">
+                      Ghi chú: {rate.note}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table (>= md) */}
+            <div className="hidden md:block overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Đơn giá / giờ</TableHead>
+                    <TableHead>Hiệu lực từ</TableHead>
+                    <TableHead>Đến ngày</TableHead>
+                    <TableHead>Ghi chú</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {employee.payRates.map((rate) => (
+                    <TableRow key={rate.id}>
+                      <TableCell className="font-semibold text-emerald-700">
+                        {formatVnd(rate.hourlyRate)}
+                      </TableCell>
+                      <TableCell>{formatDateVN(rate.effectiveFrom)}</TableCell>
+                      <TableCell>
+                        {rate.effectiveTo ? (
+                          formatDateVN(rate.effectiveTo)
+                        ) : (
+                          <Badge variant="default">Đang áp dụng</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-600">
+                        {rate.note || "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <History className="h-4 w-4 text-emerald-600" />
@@ -459,17 +623,17 @@ export function EmployeeDetailClient({
                 key={ev.id}
                 className="rounded-lg border border-border px-3.5 py-2.5 text-sm"
               >
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <Badge variant="secondary">{ev.eventType}</Badge>
                   <span className="text-xs text-muted-foreground">
                     {formatDateVN(ev.effectiveDate)}
                   </span>
                 </div>
-                <p className="text-slate-800 font-medium mt-1.5">
+                <p className="text-slate-800 font-medium mt-1.5 break-words">
                   {ev.summary}
                 </p>
                 {ev.recordedByEmail && (
-                  <p className="text-xs text-muted-foreground mt-0.5">
+                  <p className="text-xs text-muted-foreground mt-0.5 break-all">
                     Ghi nhận bởi: {ev.recordedByEmail}
                   </p>
                 )}
@@ -542,7 +706,7 @@ export function EmployeeDetailClient({
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label>Giờ mục tiêu/tuần</Label>
                 <Input
@@ -639,15 +803,85 @@ export function EmployeeDetailClient({
               />
             </div>
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="emp-telegram-chat-id">Telegram Chat ID</Label>
+                <Input
+                  id="emp-telegram-chat-id"
+                  value={telegramChatId}
+                  onChange={(e) => setTelegramChatId(e.target.value)}
+                  placeholder="VD: 123456789"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="emp-zalo-user-id">Zalo User ID</Label>
+                <Input
+                  id="emp-zalo-user-id"
+                  value={zaloUserId}
+                  onChange={(e) => setZaloUserId(e.target.value)}
+                  placeholder="VD: 4123456789012345"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Kênh nhận thông báo</Label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <label className="flex items-center gap-2 rounded-lg border border-border bg-slate-50 px-2.5 py-2 text-xs font-medium cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={notifPrefs.telegram}
+                    onChange={(e) =>
+                      setNotifPrefs((prev) => ({
+                        ...prev,
+                        telegram: e.target.checked,
+                      }))
+                    }
+                    className="h-4 w-4 rounded border-slate-300 text-emerald-600"
+                  />
+                  <span>Telegram</span>
+                </label>
+                <label className="flex items-center gap-2 rounded-lg border border-border bg-slate-50 px-2.5 py-2 text-xs font-medium cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={notifPrefs.zalo}
+                    onChange={(e) =>
+                      setNotifPrefs((prev) => ({
+                        ...prev,
+                        zalo: e.target.checked,
+                      }))
+                    }
+                    className="h-4 w-4 rounded border-slate-300 text-emerald-600"
+                  />
+                  <span>Zalo</span>
+                </label>
+                <label className="flex items-center gap-2 rounded-lg border border-border bg-slate-50 px-2.5 py-2 text-xs font-medium cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={notifPrefs.email}
+                    onChange={(e) =>
+                      setNotifPrefs((prev) => ({
+                        ...prev,
+                        email: e.target.checked,
+                      }))
+                    }
+                    className="h-4 w-4 rounded border-slate-300 text-emerald-600"
+                  />
+                  <span>Email</span>
+                </label>
+              </div>
+            </div>
+
             <div className="flex justify-end gap-2 pt-2">
               <Button
                 type="button"
                 variant="outline"
+                className="min-h-[44px] sm:min-h-0"
                 onClick={() => setEditOpen(false)}
               >
                 Hủy
               </Button>
-              <Button type="submit" disabled={submitting}>
+              <Button type="submit" disabled={submitting} className="min-h-[44px] sm:min-h-0">
                 {submitting ? "Đang lưu..." : "Lưu cập nhật"}
               </Button>
             </div>
@@ -707,11 +941,12 @@ export function EmployeeDetailClient({
               <Button
                 type="button"
                 variant="outline"
+                className="min-h-[44px] sm:min-h-0"
                 onClick={() => setWageOpen(false)}
               >
                 Hủy
               </Button>
-              <Button type="submit" disabled={submitting}>
+              <Button type="submit" disabled={submitting} className="min-h-[44px] sm:min-h-0">
                 {submitting ? "Đang lưu..." : "Xác nhận mức lương mới"}
               </Button>
             </div>
@@ -753,18 +988,101 @@ export function EmployeeDetailClient({
               <Button
                 type="button"
                 variant="outline"
+                className="min-h-[44px] sm:min-h-0"
                 onClick={() => setStatusOpen(false)}
               >
                 Hủy
               </Button>
               <Button
                 type="submit"
+                className="min-h-[44px] sm:min-h-0"
                 variant={
                   employee.status === "ACTIVE" ? "destructive" : "default"
                 }
                 disabled={submitting}
               >
                 {submitting ? "Đang xử lý..." : "Xác nhận"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset Password / PIN Modal (Owner only) */}
+      <Dialog open={credOpen} onOpenChange={setCredOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="h-5 w-5 text-emerald-600" />
+              <span>Cấp lại Mật khẩu &amp; Mã PIN</span>
+            </DialogTitle>
+            <DialogDescription>
+              Thiết lập mật khẩu đăng nhập mới hoặc mã PIN đăng ký ca cho{" "}
+              <strong>{employee.fullName}</strong> ({employee.employeeCode}).
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleResetCredentials} className="space-y-4">
+            {errorMsg && (
+              <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                {errorMsg}
+              </div>
+            )}
+            {credSuccessMsg && (
+              <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+                <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0 text-emerald-600" />
+                <span>{credSuccessMsg}</span>
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="owner-reset-pw">
+                Mật khẩu đăng nhập mới (bỏ trống nếu không đổi)
+              </Label>
+              <Input
+                id="owner-reset-pw"
+                type="password"
+                placeholder="Tối thiểu 8 ký tự, có chữ hoa, thường và số"
+                value={resetNewPassword}
+                onChange={(e) => setResetNewPassword(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="owner-reset-pin">
+                Mã PIN đăng ký ca mới (4–6 chữ số, bỏ trống nếu không đổi)
+              </Label>
+              <Input
+                id="owner-reset-pin"
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                placeholder="VD: 4829"
+                value={resetNewPin}
+                onChange={(e) =>
+                  setResetNewPin(e.target.value.replace(/\D/g, "").slice(0, 6))
+                }
+              />
+            </div>
+            <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={resetPinToDefault}
+                onChange={(e) => setResetPinToDefault(e.target.checked)}
+                disabled={resetNewPin.trim().length > 0}
+              />
+              <span>
+                Khôi phục mã PIN về mặc định (4 số cuối SĐT: {employee.phone.slice(-4)})
+              </span>
+            </label>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-[44px] sm:min-h-0"
+                onClick={() => setCredOpen(false)}
+              >
+                Đóng
+              </Button>
+              <Button type="submit" disabled={submitting} className="min-h-[44px] sm:min-h-0">
+                {submitting ? "Đang lưu..." : "Lưu thay đổi"}
               </Button>
             </div>
           </form>

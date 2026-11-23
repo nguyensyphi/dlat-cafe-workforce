@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowUpRight, Plus, Search, UserPlus } from "lucide-react";
+import { ArrowUpRight, FileSpreadsheet, Plus, Search, UserPlus } from "lucide-react";
 import type {
   EmployeeStatus,
   SkillProficiency,
@@ -34,6 +34,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { EmployeeCsvImportModal } from "./employee-csv-import-modal";
 
 const ROLE_LABELS: Record<UserRole, string> = {
   OWNER: "Chủ quán",
@@ -67,6 +68,7 @@ export function EmployeesDirectoryClient({
 
   // Create Dialog State
   const [createOpen, setCreateOpen] = useState(false);
+  const [csvImportOpen, setCsvImportOpen] = useState(false);
   const [employeeCode, setEmployeeCode] = useState("");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -116,14 +118,22 @@ export function EmployeesDirectoryClient({
   }, [initialEmployees, search, statusFilter, positionFilter]);
 
   function openCreateModal() {
-    const nextIdx = initialEmployees.length + 1;
+    let maxNum = 0;
+    for (const emp of initialEmployees) {
+      const m = emp.employeeCode.match(/^NV(\d+)$/i);
+      if (m && m[1]) {
+        const n = Number.parseInt(m[1], 10);
+        if (n > maxNum) maxNum = n;
+      }
+    }
+    const nextIdx = Math.max(maxNum + 1, initialEmployees.length + 1);
     const defaultCode = `NV${String(nextIdx).padStart(3, "0")}`;
     const defaultPosId = positions[0]?.id ?? "";
     setEmployeeCode(defaultCode);
     setFullName("");
     setEmail("");
     setPhone("");
-    setPassword("Staff@123");
+    setPassword("Dlat@2026");
     setRole("EMPLOYEE");
     setHireDate(new Date().toISOString().slice(0, 10));
     setPrimaryPositionId(defaultPosId);
@@ -213,10 +223,25 @@ export function EmployeesDirectoryClient({
         </div>
 
         {canWrite && (
-          <Button type="button" onClick={openCreateModal}>
-            <UserPlus className="h-4 w-4" />
-            <span>Thêm nhân viên</span>
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setCsvImportOpen(true)}
+              className="min-h-[44px] flex-1 sm:flex-none"
+            >
+              <FileSpreadsheet className="h-4 w-4 text-emerald-600 shrink-0" />
+              <span>Nhập từ CSV</span>
+            </Button>
+            <Button
+              type="button"
+              onClick={openCreateModal}
+              className="min-h-[44px] flex-1 sm:flex-none"
+            >
+              <UserPlus className="h-4 w-4 shrink-0" />
+              <span>Thêm nhân viên</span>
+            </Button>
+          </div>
         )}
       </div>
 
@@ -225,12 +250,12 @@ export function EmployeesDirectoryClient({
         <CardContent className="p-4">
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <div className="sm:col-span-2 relative">
-              <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+              <Search className="pointer-events-none absolute left-3 top-3.5 sm:top-3 h-4 w-4 text-slate-400" />
               <Input
                 placeholder="Tìm theo mã NV, họ tên, số điện thoại, email..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
+                className="min-h-[44px] sm:h-10 pl-9"
               />
             </div>
 
@@ -241,7 +266,7 @@ export function EmployeesDirectoryClient({
                 onChange={(e) =>
                   setStatusFilter(e.target.value as "ALL" | EmployeeStatus)
                 }
-                className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                className="flex min-h-[44px] sm:h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               >
                 <option value="ALL">Tất cả trạng thái</option>
                 <option value="ACTIVE">Đang hoạt động</option>
@@ -254,7 +279,7 @@ export function EmployeesDirectoryClient({
                 aria-label="Lọc theo vị trí"
                 value={positionFilter}
                 onChange={(e) => setPositionFilter(e.target.value)}
-                className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                className="flex min-h-[44px] sm:h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               >
                 <option value="ALL">Tất cả vị trí</option>
                 {positions.map((p) => (
@@ -281,6 +306,71 @@ export function EmployeesDirectoryClient({
               </p>
             </div>
           ) : (
+            <>
+            {/* Mobile Card View (< md) */}
+            <div className="space-y-3 p-3 md:hidden">
+              {filteredEmployees.map((emp) => (
+                <div
+                  key={`mob-${emp.id}`}
+                  className="rounded-xl border border-border bg-white p-3.5 space-y-2.5"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-700">
+                          {emp.employeeCode}
+                        </code>
+                        <span className="font-semibold text-sm text-slate-900 truncate">
+                          {emp.fullName}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {emp.phone} • {ROLE_LABELS[emp.role]}
+                      </p>
+                    </div>
+                    <Badge
+                      variant={emp.status === "ACTIVE" ? "default" : "secondary"}
+                    >
+                      {emp.status === "ACTIVE" ? "Đang làm" : "Ngừng"}
+                    </Badge>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge variant="default">{emp.primaryPosition.name}</Badge>
+                    {emp.skills
+                      .filter((sk) => sk.positionId !== emp.primaryPosition.id)
+                      .map((sk) => (
+                        <Badge key={sk.positionId} variant="outline">
+                          {sk.positionName}
+                        </Badge>
+                      ))}
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs text-slate-600 pt-1 border-t border-border/60">
+                    <span>
+                      Đơn giá:{" "}
+                      <strong className="text-emerald-700">
+                        {formatVnd(emp.currentHourlyRate)}/h
+                      </strong>
+                    </span>
+                    <span>
+                      Mục tiêu: <strong>{emp.weeklyTargetHours}h</strong>/tuần
+                    </span>
+                  </div>
+
+                  <Link
+                    href={`/employees/${emp.id}`}
+                    className="inline-flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-100"
+                  >
+                    <span>Xem &amp; Chỉnh sửa hồ sơ</span>
+                    <ArrowUpRight className="h-3.5 w-3.5" />
+                  </Link>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table View (>= md) */}
+            <div className="hidden md:block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -370,6 +460,8 @@ export function EmployeesDirectoryClient({
                 ))}
               </TableBody>
             </Table>
+            </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -618,6 +710,12 @@ export function EmployeesDirectoryClient({
           </form>
         </DialogContent>
       </Dialog>
+
+      <EmployeeCsvImportModal
+        open={csvImportOpen}
+        onOpenChange={setCsvImportOpen}
+        onImported={() => router.refresh()}
+      />
     </div>
   );
 }

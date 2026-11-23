@@ -1,10 +1,9 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import {
   Calendar,
   Clock,
-  User,
   Lock,
   CheckCircle2,
   AlertCircle,
@@ -17,8 +16,6 @@ import {
   Search,
   Star,
   Check,
-  ChevronRight,
-  Info,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -74,12 +71,6 @@ interface RegistrationDataResponse {
 
 type PreferenceType = "AVAILABLE" | "PREFERRED" | "UNAVAILABLE";
 
-interface SlotState {
-  workDate: string;
-  templateId: string;
-  preference: PreferenceType;
-}
-
 const DAY_NAMES_VN: Record<number, string> = {
   0: "Chủ Nhật",
   1: "Thứ Hai",
@@ -89,6 +80,20 @@ const DAY_NAMES_VN: Record<number, string> = {
   5: "Thứ Sáu",
   6: "Thứ Bảy",
 };
+
+function getVietnameseInitials(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "NV";
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toLocaleUpperCase("vi-VN");
+  return `${parts[0]!.charAt(0)}${parts[parts.length - 1]!.charAt(0)}`.toLocaleUpperCase("vi-VN");
+}
+
+function getDisplayPositionLabel(position?: { name: string; code?: string }): string {
+  if (!position || position.code === "TRUONG_CA" || position.name.trim().toLowerCase() === "trưởng ca") {
+    return "Nhân viên";
+  }
+  return position.name;
+}
 
 export default function QuickScheduleRegistrationClient({
   initialWeek,
@@ -132,8 +137,8 @@ export default function QuickScheduleRegistrationClient({
         }
 
         setData(json.data);
-      } catch (err: any) {
-        setError(err.message || "Lỗi kết nối máy chủ");
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Lỗi kết nối máy chủ");
       } finally {
         setLoading(false);
       }
@@ -142,14 +147,17 @@ export default function QuickScheduleRegistrationClient({
     fetchRegistrationData();
   }, [initialWeek]);
 
-  // Load draft from localStorage if exists
+  const draftLoadedWeekRef = useRef<string | null>(null);
+
+  // Load draft from localStorage once per weekStart
   useEffect(() => {
-    if (!data?.weekStart) return;
+    if (!data?.weekStart || draftLoadedWeekRef.current === data.weekStart) return;
+    draftLoadedWeekRef.current = data.weekStart;
     try {
       const savedDraft = localStorage.getItem(`dlat_shift_draft_${data.weekStart}`);
       if (savedDraft) {
         const parsed = JSON.parse(savedDraft);
-        if (parsed.employeeId && !selectedEmployeeId) {
+        if (parsed.employeeId) {
           setSelectedEmployeeId(parsed.employeeId);
         }
         if (parsed.desiredShifts) {
@@ -268,9 +276,9 @@ export default function QuickScheduleRegistrationClient({
         const key = `${date}_${t.id}`;
         if (templateCodeOrAll === "ALL") {
           newMap[key] = "AVAILABLE";
-        } else if (templateCodeOrAll === "MORNING" && (t.code.includes("MORNING") || t.startTime <= "08:00")) {
+        } else if (templateCodeOrAll === "MORNING" && (t.code === "CA_1" || t.code.includes("MORNING") || t.startTime <= "08:00")) {
           newMap[key] = "AVAILABLE";
-        } else if (templateCodeOrAll === "EVENING" && (t.code.includes("EVENING") || t.startTime >= "17:00")) {
+        } else if (templateCodeOrAll === "EVENING" && (t.code === "CA_4" || t.code.includes("EVENING") || t.startTime >= "18:00")) {
           newMap[key] = "AVAILABLE";
         }
       });
@@ -366,8 +374,8 @@ export default function QuickScheduleRegistrationClient({
 
       setSubmittedSuccessfully(true);
       setSubmitMessage(json.data?.message || "Đăng ký ca làm việc thành công!");
-    } catch (err: any) {
-      setError(err.message || "Đã xảy ra lỗi khi gửi biểu mẫu");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Đã xảy ra lỗi khi gửi biểu mẫu");
     } finally {
       setSubmitting(false);
     }
@@ -393,7 +401,7 @@ export default function QuickScheduleRegistrationClient({
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center p-4">
         <div className="h-10 w-10 animate-spin rounded-full border-4 border-emerald-600 border-t-transparent" />
-        <p className="mt-4 text-sm font-medium text-slate-600">Đang tải biểu mẫu đăng ký ca D'lat Cafe...</p>
+        <p className="mt-4 text-sm font-medium text-slate-600">Đang tải biểu mẫu đăng ký ca D&apos;lat Cafe...</p>
       </div>
     );
   }
@@ -438,14 +446,11 @@ export default function QuickScheduleRegistrationClient({
             </div>
             <div>
               <span className="text-xs font-semibold tracking-wider text-emerald-200 uppercase">
-                D'lat Cafe & Bistro
+                D&apos;lat Cafe &amp; Bistro
               </span>
               <h1 className="text-xl font-bold leading-tight">Đăng Ký Ca Làm Việc</h1>
             </div>
           </div>
-          <Badge className="bg-emerald-500/20 text-emerald-100 border-emerald-400/30 text-xs px-2.5 py-1">
-            Mã QR Nhanh
-          </Badge>
         </div>
 
         {/* WEEK INFO & DEADLINE */}
@@ -548,19 +553,17 @@ export default function QuickScheduleRegistrationClient({
                   </span>
                   Chọn Tên Nhân Viên
                 </span>
-                {selectedEmployee && (
-                  <Badge variant="outline" className="text-xs text-emerald-700 border-emerald-300 bg-emerald-50">
-                    {selectedEmployee.primaryPosition?.name || "Nhân viên"}
-                  </Badge>
-                )}
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-4 space-y-3">
               {selectedEmployee ? (
                 <div className="flex items-center justify-between rounded-xl bg-slate-50 p-3 border border-slate-200">
                   <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-800 font-bold text-sm">
-                      {selectedEmployee.fullName.slice(-2)}
+                    <div
+                      data-testid="employee-initials-avatar"
+                      className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-800 font-bold text-sm"
+                    >
+                      {getVietnameseInitials(selectedEmployee.fullName)}
                     </div>
                     <div>
                       <h4 className="text-sm font-bold text-slate-900">{selectedEmployee.fullName}</h4>
@@ -577,6 +580,8 @@ export default function QuickScheduleRegistrationClient({
                       setIsAuthenticated(false);
                       setPinCode("");
                       setPinError(null);
+                      setSlotMap({});
+                      setNote("");
                     }}
                   >
                     Đổi
@@ -616,7 +621,7 @@ export default function QuickScheduleRegistrationClient({
                             <span className="ml-2 text-xs text-slate-400">({emp.employeeCode})</span>
                           </div>
                           <span className="text-xs text-slate-500">
-                            {emp.primaryPosition?.name || "Nhân viên"}
+                            {getDisplayPositionLabel(emp.primaryPosition)}
                           </span>
                         </button>
                       ))
@@ -705,28 +710,28 @@ export default function QuickScheduleRegistrationClient({
                   <button
                     type="button"
                     onClick={() => handleQuickSetAll("MORNING")}
-                    className="rounded-lg bg-white px-2 py-1 text-[11px] font-medium text-slate-700 border border-slate-200 hover:bg-slate-50 flex items-center gap-1"
+                    className="min-h-[44px] rounded-lg bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-700 border border-slate-200 hover:bg-slate-50 flex items-center gap-1"
                   >
-                    <Sun className="h-3 w-3 text-amber-500" /> Rảnh mọi ca Sáng
+                    <Sun className="h-3 w-3 text-amber-500" /> Rảnh mọi Ca 1 (Sáng)
                   </button>
                   <button
                     type="button"
                     onClick={() => handleQuickSetAll("EVENING")}
-                    className="rounded-lg bg-white px-2 py-1 text-[11px] font-medium text-slate-700 border border-slate-200 hover:bg-slate-50 flex items-center gap-1"
+                    className="min-h-[44px] rounded-lg bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-700 border border-slate-200 hover:bg-slate-50 flex items-center gap-1"
                   >
-                    <Moon className="h-3 w-3 text-indigo-500" /> Rảnh mọi ca Tối
+                    <Moon className="h-3 w-3 text-indigo-500" /> Rảnh mọi Ca 4 (Tối)
                   </button>
                   <button
                     type="button"
                     onClick={() => handleQuickSetAll("ALL")}
-                    className="rounded-lg bg-white px-2 py-1 text-[11px] font-medium text-slate-700 border border-slate-200 hover:bg-slate-50 flex items-center gap-1"
+                    className="min-h-[44px] rounded-lg bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-700 border border-slate-200 hover:bg-slate-50 flex items-center gap-1"
                   >
                     <Sparkles className="h-3 w-3 text-emerald-600" /> Rảnh cả tuần
                   </button>
                   <button
                     type="button"
                     onClick={handleResetSlots}
-                    className="rounded-lg bg-white px-2 py-1 text-[11px] font-medium text-slate-500 border border-slate-200 hover:bg-slate-50"
+                    className="min-h-[44px] rounded-lg bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-500 border border-slate-200 hover:bg-slate-50"
                   >
                     Xóa chọn lại
                   </button>
@@ -761,7 +766,7 @@ export default function QuickScheduleRegistrationClient({
                       </div>
 
                       <CardContent className="p-2 sm:p-3">
-                        <div className="grid grid-cols-3 gap-2">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                           {data.templates.map((tpl) => {
                             const key = `${date}_${tpl.id}`;
                             const pref = slotMap[key] || "UNAVAILABLE";

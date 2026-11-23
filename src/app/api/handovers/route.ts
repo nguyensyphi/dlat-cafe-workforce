@@ -1,12 +1,12 @@
 import { NextRequest } from "next/server";
 import { apiSuccess, handleApiError } from "@/lib/api-response";
-import { requireServerSession } from "@/lib/auth";
+import { requireApiSession } from "@/lib/auth";
 import { handoverService } from "@/modules/handover/handover.service";
 import { HandoverStatus } from "@prisma/client";
 
 export async function GET(request: NextRequest) {
   try {
-    const actor = await requireServerSession("attendance:manage");
+    const actor = await requireApiSession("attendance:manage");
     const { searchParams } = new URL(request.url);
     const dateStr = searchParams.get("date");
     const statusParam = searchParams.get("status") as HandoverStatus | null;
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const actor = await requireServerSession("self:attendance");
+    const actor = await requireApiSession("self:attendance");
     const body = await request.json();
 
     const result = await handoverService.submitHandover(body, actor);

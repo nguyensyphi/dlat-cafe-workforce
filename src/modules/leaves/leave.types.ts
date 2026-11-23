@@ -11,6 +11,7 @@ export interface LeaveRequestDto {
   startAt: string;
   endAt: string;
   reason: string;
+  isEmergency: boolean;
   status: LeaveStatus;
   reviewedById: string | null;
   reviewedByName: string | null;

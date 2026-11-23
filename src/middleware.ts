@@ -18,8 +18,19 @@ const MANAGEMENT_PREFIXES = [
   "/kiosk",
 ];
 
+const PUBLIC_PATHS = ["/offline", "/sw.js", "/manifest.json"];
+
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
+
+  if (
+    PUBLIC_PATHS.some(
+      (publicPath) =>
+        pathname === publicPath || pathname.startsWith(`${publicPath}/`),
+    )
+  ) {
+    return NextResponse.next();
+  }
 
   const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
   const session = token ? await verifySessionToken(token) : null;
@@ -38,6 +49,22 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
   if (pathname.startsWith("/login") || pathname.startsWith("/forgot-password")) {
     if (session) {
+      const requestedTarget =
+        request.nextUrl.searchParams.get("next") ||
+        request.nextUrl.searchParams.get("from");
+      const isSafeRelative =
+        Boolean(requestedTarget) &&
+        requestedTarget!.startsWith("/") &&
+        !requestedTarget!.startsWith("//");
+      const canEmployeeVisit =
+        isSafeRelative &&
+        (requestedTarget!.startsWith("/employee") ||
+          requestedTarget!.startsWith("/register-schedule"));
+
+      if (isSafeRelative && (session.role !== "EMPLOYEE" || canEmployeeVisit)) {
+        return NextResponse.redirect(new URL(requestedTarget!, request.url));
+      }
+
       return NextResponse.redirect(
         new URL(
           session.role === "EMPLOYEE" ? "/employee/profile" : "/dashboard",
@@ -66,7 +93,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     if (!session) {
       const loginUrl = new URL("/login", request.url);
       const returnTo = `${request.nextUrl.pathname}${request.nextUrl.search}`;
-      loginUrl.searchParams.set("from", returnTo);
+      loginUrl.searchParams.set("next", returnTo);
       return NextResponse.redirect(loginUrl);
     }
 
@@ -80,7 +107,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
 export const config = {
   matcher: [
-    "/((?!api|_next/static|_next/image|favicon.ico|icons|images|manifest.json).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|icons|images|manifest.json|sw.js|offline).*)",
   ],
 };
 

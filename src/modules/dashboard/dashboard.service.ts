@@ -19,6 +19,11 @@ export interface ManagementDashboardMetrics {
   pendingSwapCount: number;
   weeklyScheduledHours: number;
   estimatedWeeklyLaborCostVnd: string;
+  estimatedMonthlyLaborCostVnd: string;
+  monthlyCashDiscrepancyVnd: string;
+  monthlyCashDiscrepancyAbsVnd: string;
+  cashDiscrepancyCount: number;
+  disputedHandoverCount: number;
   activePositionsCount: number;
   activeShiftTemplatesCount: number;
   positionBreakdown: Array<{
@@ -42,6 +47,7 @@ const CACHE_TTL_MS = 15_000; // 15s TTL for dashboard metrics
 
 export function invalidateDashboardCache() {
   cachedMetrics = null;
+  lastCacheTimestamp = 0;
 }
 
 export const dashboardService = {
@@ -62,6 +68,11 @@ export const dashboardService = {
     const weekEndUtc = new Date(weekStartUtc.getTime());
     weekEndUtc.setUTCDate(weekEndUtc.getUTCDate() + 6);
 
+    const yearNum = Number(todayIso.slice(0, 4));
+    const monthNum = Number(todayIso.slice(5, 7));
+    const monthStartUtc = new Date(Date.UTC(yearNum, monthNum - 1, 1));
+    const monthEndUtc = new Date(Date.UTC(yearNum, monthNum, 0));
+
     const [
       activeEmployees,
       inactiveEmployees,
@@ -72,6 +83,9 @@ export const dashboardService = {
       todayShifts,
       todayAttendances,
       weekShifts,
+      monthShifts,
+      monthHandovers,
+      disputedHandoverCount,
       recentAuditLogs,
     ] = await Promise.all([
       prisma.employee.count({ where: { status: "ACTIVE" } }),
@@ -124,6 +138,46 @@ export const dashboardService = {
           },
         },
       }),
+      prisma.shift.findMany({
+        where: {
+          workDate: { gte: monthStartUtc, lte: monthEndUtc },
+          status: { not: "CANCELLED" },
+          schedule: { status: { in: ["PUBLISHED", "LOCKED"] } },
+        },
+        include: {
+          assignments: {
+            where: { status: "ASSIGNED" },
+            include: {
+              employee: {
+                include: {
+                  payRates: {
+                    where: { effectiveTo: null },
+                    take: 1,
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+      prisma.shiftHandover.findMany({
+        where: {
+          shift: {
+            workDate: { gte: monthStartUtc, lte: monthEndUtc },
+          },
+        },
+        select: {
+          cashDifferenceVnd: true,
+        },
+      }),
+      prisma.shiftHandover.count({
+        where: {
+          status: "DISCREPANCY",
+          shift: {
+            workDate: { gte: monthStartUtc, lte: monthEndUtc },
+          },
+        },
+      }),
       prisma.auditLog.findMany({
         orderBy: { createdAt: "desc" },
         take: 6,
@@ -171,6 +225,31 @@ export const dashboardService = {
       }
     }
 
+    let estimatedMonthlyLaborCost = 0n;
+    for (const shift of monthShifts) {
+      const durationMin = Math.max(
+        0,
+        Math.round((shift.endAt.getTime() - shift.startAt.getTime()) / 60000) -
+          shift.breakMinutes,
+      );
+      for (const assign of shift.assignments) {
+        const rate = assign.employee.payRates[0]?.hourlyRate ?? 0n;
+        estimatedMonthlyLaborCost += (rate * BigInt(durationMin)) / 60n;
+      }
+    }
+
+    let monthlyCashDiscrepancy = 0n;
+    let monthlyCashDiscrepancyAbs = 0n;
+    let cashDiscrepancyCount = 0;
+    for (const h of monthHandovers) {
+      const diff = h.cashDifferenceVnd ?? 0n;
+      monthlyCashDiscrepancy += diff;
+      if (diff !== 0n) {
+        cashDiscrepancyCount += 1;
+        monthlyCashDiscrepancyAbs += diff < 0n ? -diff : diff;
+      }
+    }
+
     const result: ManagementDashboardMetrics = {
       activeEmployees,
       inactiveEmployees,
@@ -182,6 +261,11 @@ export const dashboardService = {
       pendingSwapCount,
       weeklyScheduledHours: Math.round((weeklyScheduledMinutes / 60) * 10) / 10,
       estimatedWeeklyLaborCostVnd: estimatedWeeklyLaborCost.toString(),
+      estimatedMonthlyLaborCostVnd: estimatedMonthlyLaborCost.toString(),
+      monthlyCashDiscrepancyVnd: monthlyCashDiscrepancy.toString(),
+      monthlyCashDiscrepancyAbsVnd: monthlyCashDiscrepancyAbs.toString(),
+      cashDiscrepancyCount,
+      disputedHandoverCount,
       activePositionsCount: activePositions.length,
       activeShiftTemplatesCount,
       positionBreakdown: activePositions.map((p) => ({

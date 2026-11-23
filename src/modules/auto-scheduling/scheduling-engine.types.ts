@@ -30,6 +30,10 @@ export interface EngineEmployee {
   status: string;
   weeklyTargetHours: number;
   maxWeeklyHours: number;
+  desiredShifts?: number;
+  fixedRestDay?: number | null;
+  hireDate?: Date | string;
+  isSenior?: boolean;
   hourlyRate: bigint;
   skills: Array<{
     positionId: string;

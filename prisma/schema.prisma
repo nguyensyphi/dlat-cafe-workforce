@@ -120,6 +120,14 @@ enum StockCondition {
   EXPIRED
 }
 
+enum OvertimeStatus {
+  NONE
+  DETECTED
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+
 enum AttendanceSource {
   QR
   MANUAL
@@ -153,8 +161,11 @@ model User {
   passwordHash String    @map("password_hash") @db.Text
   role         UserRole  @default(EMPLOYEE)
   isActive     Boolean   @default(true) @map("is_active")
-  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(6)
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastLoginAt             DateTime? @map("last_login_at") @db.Timestamptz(6)
+  telegramChatId          String?   @map("telegram_chat_id") @db.VarChar(100)
+  zaloUserId              String?   @map("zalo_user_id") @db.VarChar(100)
+  notificationPreferences Json?     @map("notification_preferences") @db.JsonB
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   employee                 Employee?
@@ -219,6 +230,7 @@ model Employee {
   weeklyTargetHours Decimal        @default(24) @map("weekly_target_hours") @db.Decimal(5, 2)
   maxWeeklyHours    Decimal        @default(48) @map("max_weekly_hours") @db.Decimal(5, 2)
   fixedRestDay      Int?           @map("fixed_rest_day")
+  pinHash           String?        @map("pin_hash") @db.Text
   internalNotes     String?        @map("internal_notes") @db.Text
   deletedAt         DateTime?      @map("deleted_at") @db.Timestamptz(6)
   createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -301,6 +313,7 @@ model ShiftTemplate {
   startTime    String   @map("start_time") @db.VarChar(5)
   endTime      String   @map("end_time") @db.VarChar(5)
   breakMinutes Int      @default(0) @map("break_minutes")
+  isPaidBreak  Boolean  @default(true) @map("is_paid_break")
   minStaff     Int      @default(1) @map("min_staff")
   maxStaff     Int      @default(5) @map("max_staff")
   priority     Int      @default(1)
@@ -381,6 +394,7 @@ model Shift {
   startAt       DateTime    @map("start_at") @db.Timestamptz(6)
   endAt         DateTime    @map("end_at") @db.Timestamptz(6)
   breakMinutes  Int         @default(0) @map("break_minutes")
+  isPaidBreak   Boolean     @default(true) @map("is_paid_break")
   requiredStaff Int         @default(1) @map("required_staff")
   maxStaff      Int?        @map("max_staff")
   priority      Int         @default(1)
@@ -472,6 +486,7 @@ model LeaveRequest {
   startAt      DateTime    @map("start_at") @db.Timestamptz(6)
   endAt        DateTime    @map("end_at") @db.Timestamptz(6)
   reason       String      @db.Text
+  isEmergency  Boolean     @default(false) @map("is_emergency")
   status       LeaveStatus @default(PENDING)
   reviewedById String?     @map("reviewed_by") @db.Uuid
   reviewedAt   DateTime?   @map("reviewed_at") @db.Timestamptz(6)
@@ -550,6 +565,8 @@ model Attendance {
   penaltyLateMinutes Int                       @default(0) @map("penalty_late_minutes")
   earlyLeaveMinutes Int                        @default(0) @map("early_leave_minutes")
   overtimeMinutes   Int                        @default(0) @map("overtime_minutes")
+  overtimeStatus    OvertimeStatus             @default(NONE) @map("overtime_status")
+  isUnscheduled     Boolean                    @default(false) @map("is_unscheduled")
   isMissingClockOut Boolean                    @default(false) @map("is_missing_clock_out")
   source            AttendanceSource           @default(QR)
   status            AttendanceStatus           @default(PENDING)
@@ -662,6 +679,7 @@ model Notification {
   message   String    @db.Text
   type      String    @db.VarChar(60)
   linkUrl   String?   @map("link_url") @db.Text
+  dedupeKey String?   @unique @map("dedupe_key") @db.VarChar(180)
   isRead    Boolean   @default(false) @map("is_read")
   readAt    DateTime? @map("read_at") @db.Timestamptz(6)
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)

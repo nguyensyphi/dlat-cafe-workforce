@@ -35,6 +35,13 @@ const STATUS_LABELS: Record<string, { label: string; variant: "default" | "secon
   LOCKED: { label: "Đã khóa sổ", variant: "default", className: "bg-gray-800 text-white" },
 };
 
+function toBigIntSafe(value: bigint | number | string | null | undefined): bigint {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number") return BigInt(Math.trunc(value));
+  if (typeof value === "string" && value.trim() !== "") return BigInt(value.trim());
+  return 0n;
+}
+
 export function PayrollManagementClient({
   initialPeriods,
 }: {
@@ -54,6 +61,31 @@ export function PayrollManagementClient({
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  function applyPeriodPreset(preset: "PERIOD_1" | "PERIOD_2") {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1; // 1-12
+    const monthStr = month < 10 ? `0${month}` : `${month}`;
+
+    if (preset === "PERIOD_1") {
+      setName(`Bảng lương Tháng ${monthStr}/${year} (Kỳ 1: 01-15)`);
+      setPeriodStart(`${year}-${monthStr}-01`);
+      setPeriodEnd(`${year}-${monthStr}-15`);
+      setCutoffDate(`${year}-${monthStr}-15`);
+      setPaymentDate(`${year}-${monthStr}-18`);
+    } else {
+      const lastDay = new Date(year, month, 0).getDate();
+      setName(`Bảng lương Tháng ${monthStr}/${year} (Kỳ 2: 16-Hết tháng)`);
+      setPeriodStart(`${year}-${monthStr}-16`);
+      setPeriodEnd(`${year}-${monthStr}-${lastDay}`);
+      setCutoffDate(`${year}-${monthStr}-${lastDay}`);
+      const nextMonth = month === 12 ? 1 : month + 1;
+      const nextYear = month === 12 ? year + 1 : year;
+      const nextMonthStr = nextMonth < 10 ? `0${nextMonth}` : `${nextMonth}`;
+      setPaymentDate(`${nextYear}-${nextMonthStr}-03`);
+    }
+  }
 
   async function handleCreatePeriod(e: React.FormEvent) {
     e.preventDefault();
@@ -95,7 +127,7 @@ export function PayrollManagementClient({
   // Aggregate stats
   const totalPaidOutVND = periods
     .filter((p) => p.status === "PAID" || p.status === "LOCKED")
-    .reduce((acc, cur) => acc + cur.totalPayrollVND, 0n);
+    .reduce((acc, cur) => acc + toBigIntSafe(cur.totalPayrollVND), 0n);
 
   return (
     <div className="space-y-6">
@@ -110,7 +142,7 @@ export function PayrollManagementClient({
         <div className="flex items-center gap-3">
           <Button
             onClick={() => setCreateModalOpen(true)}
-            className="gap-2 bg-emerald-600 text-white hover:bg-emerald-700"
+            className="min-h-[44px] w-full sm:w-auto gap-2 bg-emerald-600 text-white hover:bg-emerald-700"
           >
             <Plus className="h-4 w-4" />
             <span>Tạo kỳ lương mới</span>
@@ -177,7 +209,66 @@ export function PayrollManagementClient({
               Chưa có kỳ lương nào. Nhấn &quot;Tạo kỳ lương mới&quot; để bắt đầu tính toán lương.
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+              {/* Mobile Card View (< md) */}
+              <div className="space-y-3 md:hidden">
+                {periods.map((p) => {
+                  const st = STATUS_LABELS[p.status] || {
+                    label: p.status,
+                    variant: "outline",
+                  };
+                  return (
+                    <div
+                      key={`mob-${p.id}`}
+                      className="rounded-xl border border-border bg-white p-3.5 space-y-3"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <Link
+                            href={`/payroll/${p.id}`}
+                            className="font-semibold text-sm text-emerald-700 hover:underline block truncate"
+                          >
+                            {p.name}
+                          </Link>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {formatDateVN(p.periodStart)} – {formatDateVN(p.periodEnd)}
+                          </p>
+                        </div>
+                        <Badge variant={st.variant} className={st.className}>
+                          {p.status === "LOCKED" && <Lock className="mr-1 h-3 w-3 inline" />}
+                          {st.label}
+                        </Badge>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 rounded-lg bg-slate-50 p-2.5 text-xs">
+                        <div>
+                          <span className="text-muted-foreground block">Nhân sự</span>
+                          <span className="font-semibold">{p.totalEmployees}</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground block">Giờ công</span>
+                          <span className="font-semibold">{p.totalHours.toFixed(1)}h</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground block">Quỹ lương</span>
+                          <span className="font-bold text-emerald-700">
+                            {formatVnd(p.totalPayrollVND)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <Link href={`/payroll/${p.id}`} className="block">
+                        <Button size="sm" variant="outline" className="min-h-[44px] w-full text-xs">
+                          Xem chi tiết kỳ lương
+                        </Button>
+                      </Link>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop Table View (>= md) */}
+              <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
                   <tr>
@@ -242,6 +333,7 @@ export function PayrollManagementClient({
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -263,6 +355,32 @@ export function PayrollManagementClient({
                   {formError}
                 </div>
               )}
+
+              <div className="space-y-1.5 rounded-lg border border-emerald-500/20 bg-emerald-50/50 p-2.5 dark:bg-emerald-950/20">
+                <Label className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+                  Chọn nhanh chu kỳ D&apos;Lat (2 kỳ/tháng):
+                </Label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => applyPeriodPreset("PERIOD_1")}
+                    className="flex-1 text-xs border-emerald-500/40 hover:bg-emerald-100/60 dark:hover:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 font-medium h-8"
+                  >
+                    ⚡ Kỳ 1 (01 - 15)
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => applyPeriodPreset("PERIOD_2")}
+                    className="flex-1 text-xs border-emerald-500/40 hover:bg-emerald-100/60 dark:hover:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 font-medium h-8"
+                  >
+                    ⚡ Kỳ 2 (16 - Cuối tháng)
+                  </Button>
+                </div>
+              </div>
 
               <div className="space-y-1">
                 <Label htmlFor="period-name">Tên kỳ lương:</Label>

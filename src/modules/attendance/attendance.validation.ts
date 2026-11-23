@@ -23,6 +23,18 @@ export const manualAdjustAttendanceSchema = z.object({
     .max(500, "Lý do điều chỉnh tối đa 500 ký tự"),
 });
 
+export const quickFixClockOutSchema = z.object({
+  clockOut: z.string().datetime("Giờ ra không đúng định dạng ISO").optional().nullable(),
+  reason: z
+    .string()
+    .trim()
+    .min(3, "Lý do chỉnh sửa tối thiểu 3 ký tự")
+    .max(500, "Lý do chỉnh sửa tối đa 500 ký tự")
+    .optional(),
+  autoApprove: z.boolean().optional().default(true),
+});
+
 export type ScanQrAttendanceInput = z.infer<typeof scanQrAttendanceSchema>;
 export type ManualAdjustAttendanceInput = z.infer<typeof manualAdjustAttendanceSchema>;
+export type QuickFixClockOutInput = z.infer<typeof quickFixClockOutSchema>;
 

@@ -43,6 +43,7 @@ export interface AssignmentEvaluationInput {
     status: EmployeeStatus;
     maxWeeklyHours: number;
     skillPositionIds: string[];
+    fixedRestDay?: number | null;
   };
   shift: EvaluationInterval & {
     id: string;
@@ -161,21 +162,48 @@ export function evaluateAssignment(
     });
   }
 
+  if (
+    employee.fixedRestDay !== undefined &&
+    employee.fixedRestDay !== null &&
+    preference !== "PREFERRED"
+  ) {
+    // Shift start in VN (+07:00) day of week (0 = Sunday .. 6 = Saturday)
+    const vnShiftDay = new Date(shift.startAt.getTime() + 7 * 3600_000).getUTCDay();
+    if (vnShiftDay === employee.fixedRestDay) {
+      conflicts.push({
+        code: "UNAVAILABLE",
+        severity: "WARNING",
+        message: "Trùng vào ngày nghỉ cố định hàng tuần của nhân viên",
+      });
+    }
+  }
+
   const minRestMs = policy.minRestHours * 60 * 60 * 1000;
   if (minRestMs > 0) {
+    const vnShiftDate = new Date(shift.startAt.getTime() + 7 * 3600_000)
+      .toISOString()
+      .slice(0, 10);
     for (const other of input.otherAssignments) {
       if (intervalsOverlap(other.startAt, other.endAt, shift.startAt, shift.endAt)) {
+        continue;
+      }
+      const vnOtherDate = new Date(other.startAt.getTime() + 7 * 3600_000)
+        .toISOString()
+        .slice(0, 10);
+      // Same-day multiple shifts (Sáng, Chiều, Tối) are allowed; minRestHours applies to overnight rest between different days
+      if (vnShiftDate === vnOtherDate) {
         continue;
       }
       const gapMs =
         other.endAt.getTime() <= shift.startAt.getTime()
           ? shift.startAt.getTime() - other.endAt.getTime()
           : other.startAt.getTime() - shift.endAt.getTime();
+
       if (gapMs < minRestMs) {
         conflicts.push({
           code: "INSUFFICIENT_REST",
           severity: "WARNING",
-          message: `Chỉ nghỉ ${formatHours(gapMs / 60000)} giữa ${other.shiftName} và ca này (tối thiểu ${policy.minRestHours} giờ)`,
+          message: `Chỉ nghỉ qua đêm ${formatHours(gapMs / 60000)} giữa ${other.shiftName} và ca này (tối thiểu ${policy.minRestHours} giờ)`,
         });
       }
     }

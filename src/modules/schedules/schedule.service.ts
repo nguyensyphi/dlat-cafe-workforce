@@ -22,9 +22,19 @@ import {
 } from "@/lib/shift-time";
 import { parseOrThrow } from "@/lib/validation";
 import { recordAuditLog } from "@/modules/audit/audit.service";
-import { createNotifications } from "@/modules/notifications/notification.service";
+import { invalidateDashboardCache } from "@/modules/dashboard/dashboard.service";
+import {
+  createNotifications,
+  dispatchNotificationsToUsers,
+} from "@/modules/notifications/notification.service";
 import { loadSettingsBundle } from "@/modules/settings/settings.service";
-import { recordScheduleRevision, SCHEDULE_STATUS_LABELS } from "./schedule-lifecycle";
+import { loadAssignmentContexts } from "./assignment-context";
+import { evaluateAssignment } from "./conflict-detector";
+import {
+  recordScheduleRevision,
+  refreshShiftStatus,
+  SCHEDULE_STATUS_LABELS,
+} from "./schedule-lifecycle";
 import { scheduleRepository } from "./schedule.repository";
 import type {
   MyWeekScheduleDto,
@@ -46,7 +56,7 @@ function todayLocal(): string {
 
 export function computeAvailabilityDeadline(weekStart: string, leadDays: number): Date {
   return fromZonedTime(
-    `${addDaysToDateString(weekStart, -leadDays)}T00:00:00`,
+    `${addDaysToDateString(weekStart, -leadDays)}T19:00:00`,
     HO_CHI_MINH_TZ,
   );
 }
@@ -172,6 +182,7 @@ export const scheduleService = {
       return schedule.id;
     });
 
+    invalidateDashboardCache();
     return this.getById(actor, scheduleId);
   },
 
@@ -182,6 +193,10 @@ export const scheduleService = {
   ): Promise<ScheduleDetailDto> {
     assertPermission(actor.role, "schedules:manage");
     const { action } = parseOrThrow(scheduleStatusActionSchema, rawInput);
+    let publishedDispatch: {
+      userIds: string[];
+      weekStart: string;
+    } | null = null;
 
     await prisma.$transaction(async (tx) => {
       // Row lock prevents concurrent status transitions on the same schedule.
@@ -245,6 +260,10 @@ export const scheduleService = {
               };
             }),
           );
+          publishedDispatch = {
+            userIds: employees.map((e) => e.userId),
+            weekStart,
+          };
           break;
         }
         case "LOCK": {
@@ -307,6 +326,235 @@ export const scheduleService = {
       );
     });
 
+    if (publishedDispatch !== null) {
+      const pd: { userIds: string[]; weekStart: string } = publishedDispatch;
+      await dispatchNotificationsToUsers(pd.userIds, {
+        eventType: "SCHEDULE_PUBLISHED",
+        title: `Đã có lịch làm tuần ${formatDateVN(pd.weekStart)}`,
+        message: `Lịch làm việc chính thức tuần ${formatDateVN(pd.weekStart)} đã được công bố. Vui lòng kiểm tra lịch trực cá nhân.`,
+        linkUrl: `/employee/schedule?week=${pd.weekStart}`,
+        includeGroupTelegram: true,
+      });
+    }
+
+    invalidateDashboardCache();
+    return this.getById(actor, scheduleId);
+  },
+
+  /** Copies shifts and staff assignments from the prior week (7 days ago) into this DRAFT schedule. */
+  async copyPreviousWeek(actor: SessionUser, scheduleId: string): Promise<ScheduleDetailDto> {
+    assertPermission(actor.role, "schedules:manage");
+
+    const targetSchedule = await prisma.schedule.findUnique({
+      where: { id: scheduleId },
+      include: {
+        shifts: {
+          include: {
+            assignments: true,
+          },
+        },
+      },
+    });
+
+    if (!targetSchedule) {
+      throw new AppNotFoundError("Không tìm thấy lịch làm việc mục tiêu");
+    }
+
+    if (targetSchedule.status !== "DRAFT") {
+      throw new AppValidationError("Chỉ có thể sao chép vào lịch tuần đang ở trạng thái Bản nháp (DRAFT)");
+    }
+
+    const targetWeekStartStr = formatIsoDateOnly(targetSchedule.weekStart);
+    const prevWeekStartStr = addDaysToDateString(targetWeekStartStr, -7);
+
+    const prevSchedule = await prisma.schedule.findUnique({
+      where: { weekStart: new Date(`${prevWeekStartStr}T00:00:00.000Z`) },
+      include: {
+        shifts: {
+          where: { status: { not: "CANCELLED" } },
+          include: {
+            assignments: {
+              where: { status: "ASSIGNED" },
+            },
+            positionRequirements: true,
+          },
+        },
+      },
+    });
+
+    if (!prevSchedule || prevSchedule.shifts.length === 0) {
+      throw new AppValidationError(
+        `Không tìm thấy lịch tuần trước (${formatDateVN(prevWeekStartStr)}) có ca làm việc để sao chép`,
+      );
+    }
+
+    await prisma.$transaction(async (tx) => {
+      let createdShiftCount = 0;
+      let copiedAssignmentCount = 0;
+      let skippedAssignmentCount = 0;
+
+      const targetShiftMap = new Map<string, (typeof targetSchedule.shifts)[number]>();
+      for (const ts of targetSchedule.shifts) {
+        const key = `${formatIsoDateOnly(ts.workDate)}_${ts.templateId ?? ts.name}`;
+        targetShiftMap.set(key, ts);
+      }
+
+      for (const ps of prevSchedule.shifts) {
+        const prevWorkDateStr = formatIsoDateOnly(ps.workDate);
+        const newWorkDateStr = addDaysToDateString(prevWorkDateStr, 7);
+        const shiftKey = `${newWorkDateStr}_${ps.templateId ?? ps.name}`;
+
+        let currentShift = targetShiftMap.get(shiftKey);
+
+        if (!currentShift) {
+          const diffMs = 7 * 24 * 60 * 60 * 1000;
+          const newStartAt = new Date(ps.startAt.getTime() + diffMs);
+          const newEndAt = new Date(ps.endAt.getTime() + diffMs);
+
+          const created = await tx.shift.create({
+            data: {
+              scheduleId: targetSchedule.id,
+              templateId: ps.templateId,
+              name: ps.name,
+              workDate: new Date(`${newWorkDateStr}T00:00:00.000Z`),
+              startAt: newStartAt,
+              endAt: newEndAt,
+              breakMinutes: ps.breakMinutes,
+              requiredStaff: ps.requiredStaff,
+              maxStaff: ps.maxStaff,
+              priority: ps.priority,
+              isPeak: ps.isPeak,
+              status: "OPEN",
+            },
+            include: { assignments: true },
+          });
+
+          for (const req of ps.positionRequirements) {
+            await tx.shiftPositionRequirement.create({
+              data: {
+                shiftId: created.id,
+                positionId: req.positionId,
+                minCount: req.minCount,
+                maxCount: req.maxCount,
+              },
+            });
+          }
+
+          currentShift = created;
+          targetShiftMap.set(shiftKey, currentShift);
+          createdShiftCount++;
+        }
+
+        let currentAssignedCount = currentShift.assignments.filter(
+          (ca) => ca.status === "ASSIGNED",
+        ).length;
+
+        const candidateEmployeeIds = ps.assignments
+          .filter(
+            (pa) =>
+              !currentShift!.assignments.some(
+                (ca) => ca.employeeId === pa.employeeId && ca.status === "ASSIGNED",
+              ),
+          )
+          .map((pa) => pa.employeeId);
+
+        const contexts =
+          candidateEmployeeIds.length > 0
+            ? await loadAssignmentContexts(tx, {
+                shift: {
+                  id: currentShift.id,
+                  name: currentShift.name,
+                  templateId: currentShift.templateId,
+                  workDate: currentShift.workDate,
+                  startAt: currentShift.startAt,
+                  endAt: currentShift.endAt,
+                  breakMinutes: currentShift.breakMinutes,
+                },
+                weekStart: targetWeekStartStr,
+                employeeIds: candidateEmployeeIds,
+              })
+            : new Map();
+
+        for (const pa of ps.assignments) {
+          const alreadyAssigned = currentShift.assignments.some(
+            (ca) => ca.employeeId === pa.employeeId && ca.status === "ASSIGNED",
+          );
+          if (alreadyAssigned) continue;
+
+          if (currentShift.maxStaff !== null && currentAssignedCount >= currentShift.maxStaff) {
+            skippedAssignmentCount++;
+            continue;
+          }
+
+          const ctx = contexts.get(pa.employeeId);
+          if (!ctx) {
+            skippedAssignmentCount++;
+            continue;
+          }
+
+          const evaluation = evaluateAssignment({
+            ...ctx.base,
+            positionId: pa.positionId,
+          });
+          if (evaluation.blocking || evaluation.preference === "UNAVAILABLE") {
+            skippedAssignmentCount++;
+            continue;
+          }
+
+          await tx.shiftAssignment.upsert({
+            where: {
+              shiftId_employeeId: {
+                shiftId: currentShift.id,
+                employeeId: pa.employeeId,
+              },
+            },
+            update: {
+              status: "ASSIGNED",
+              positionId: pa.positionId,
+              assignedById: actor.userId,
+              explanation: "Sao chép phân công từ tuần trước",
+            },
+            create: {
+              shiftId: currentShift.id,
+              employeeId: pa.employeeId,
+              positionId: pa.positionId,
+              status: "ASSIGNED",
+              assignedById: actor.userId,
+              explanation: "Sao chép phân công từ tuần trước",
+            },
+          });
+          copiedAssignmentCount++;
+          currentAssignedCount++;
+        }
+
+        await refreshShiftStatus(tx, currentShift.id);
+      }
+
+      await recordScheduleRevision(tx, {
+        scheduleId: targetSchedule.id,
+        actorUserId: actor.userId,
+        action: "COPIED_FROM_PREVIOUS_WEEK",
+        summary: `Sao chép từ tuần trước (${formatDateVN(prevWeekStartStr)}): ${createdShiftCount} ca tạo mới, ${copiedAssignmentCount} lượt phân công${skippedAssignmentCount > 0 ? `, bỏ qua ${skippedAssignmentCount} lượt do nghỉ/bận/trùng` : ""}`,
+      });
+
+      await recordAuditLog(
+        {
+          userId: actor.userId,
+          action: "SCHEDULE_COPY_PREVIOUS_WEEK",
+          entityType: "Schedule",
+          entityId: targetSchedule.id,
+          newValues: {
+            copiedFromWeekStart: prevWeekStartStr,
+            createdShiftCount,
+            copiedAssignmentCount,
+            skippedAssignmentCount,
+          },
+        },
+        tx,
+      );
+    });
+
+    invalidateDashboardCache();
     return this.getById(actor, scheduleId);
   },
 

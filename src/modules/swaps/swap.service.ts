@@ -10,9 +10,16 @@ import {
 } from "@/lib/permissions";
 import { parseOrThrow } from "@/lib/validation";
 import { recordAuditLog } from "@/modules/audit/audit.service";
-import { createNotifications } from "@/modules/notifications/notification.service";
+import { invalidateDashboardCache } from "@/modules/dashboard/dashboard.service";
+import {
+  createNotifications,
+  dispatchNotificationsToUsers,
+} from "@/modules/notifications/notification.service";
+import { loadAssignmentContexts } from "@/modules/schedules/assignment-context";
+import { evaluateAssignment } from "@/modules/schedules/conflict-detector";
 import {
   assertScheduleEditable,
+  lockEmployeeForScheduling,
   recordScheduleRevision,
   refreshShiftStatus,
 } from "@/modules/schedules/schedule-lifecycle";
@@ -75,6 +82,38 @@ export const swapService = {
 
     assertScheduleEditable(assignment.shift.schedule.status);
 
+    if (assignment.shift.endAt.getTime() <= Date.now()) {
+      throw new AppValidationError("Ca làm việc này đã kết thúc, không thể gửi yêu cầu đổi ca");
+    }
+
+    const [existingActiveSwap, targetAlreadyInShift] = await Promise.all([
+      prisma.swapRequest.findFirst({
+        where: {
+          shiftId: data.shiftId,
+          requesterId: actor.employeeId,
+          status: { in: ["PENDING", "ACCEPTED"] },
+        },
+        select: { id: true },
+      }),
+      prisma.shiftAssignment.findUnique({
+        where: {
+          shiftId_employeeId: {
+            shiftId: data.shiftId,
+            employeeId: data.targetEmployeeId,
+          },
+        },
+        select: { status: true },
+      }),
+    ]);
+
+    if (existingActiveSwap) {
+      throw new AppValidationError("Bạn đã có yêu cầu đổi ca đang chờ xử lý cho ca này");
+    }
+
+    if (targetAlreadyInShift?.status === "ASSIGNED") {
+      throw new AppValidationError("Đồng nghiệp này đã được phân công vào cùng ca này rồi");
+    }
+
     const created = await prisma.$transaction(async (tx) => {
       const swap = await tx.swapRequest.create({
         data: {
@@ -120,6 +159,15 @@ export const swapService = {
 
       return swap;
     });
+
+    await dispatchNotificationsToUsers([targetEmployee.userId], {
+      eventType: "SWAP_REQUESTED",
+      title: "Lời mời đổi ca mới",
+      message: `${assignment.employee.fullName} muốn đổi ${created.shift.name} ngày ${formatDateVN(created.shift.workDate)} cho bạn`,
+      linkUrl: "/employee/requests",
+    });
+
+    invalidateDashboardCache();
 
     return {
       id: created.id,
@@ -199,31 +247,40 @@ export const swapService = {
         tx,
       );
 
+      let managerIds: string[] = [];
+      let notifTitle = "";
+      let notifMessage = "";
+
       if (data.accept) {
         // Notify managers for step 3 approval
         const managers = await tx.user.findMany({
           where: { role: { in: ["OWNER", "MANAGER"] }, isActive: true },
           select: { id: true },
         });
+        managerIds = managers.map((m) => m.id);
+        notifTitle = `Yêu cầu đổi ca chờ duyệt: ${swap.requester.fullName} ➔ ${swap.targetEmployee.fullName}`;
+        notifMessage = `${swap.targetEmployee.fullName} đã đồng ý nhận ${swap.shift.name} (${formatDateVN(swap.shift.workDate)}). Chờ Quản lý phê duyệt!`;
 
         await createNotifications(
           tx,
-          managers.map((m) => ({
-            userId: m.id,
+          managerIds.map((id) => ({
+            userId: id,
             type: "SWAP_ACCEPTED" as const,
-            title: `Yêu cầu đổi ca chờ duyệt: ${swap.requester.fullName} ➔ ${swap.targetEmployee.fullName}`,
-            message: `${swap.targetEmployee.fullName} đã đồng ý nhận ${swap.shift.name} (${formatDateVN(swap.shift.workDate)}). Chờ Quản lý phê duyệt!`,
+            title: notifTitle,
+            message: notifMessage,
             linkUrl: "/requests",
           })),
         );
       } else {
         // Notify requester that target declined
+        notifTitle = "Yêu cầu đổi ca bị từ chối";
+        notifMessage = `${swap.targetEmployee.fullName} đã từ chối nhận ca làm của bạn.`;
         await createNotifications(tx, [
           {
             userId: swap.requester.userId,
             type: "SWAP_REVIEWED",
-            title: "Yêu cầu đổi ca bị từ chối",
-            message: `${swap.targetEmployee.fullName} đã từ chối nhận ca làm của bạn.`,
+            title: notifTitle,
+            message: notifMessage,
             linkUrl: "/employee/requests",
           },
         ]);
@@ -234,8 +291,30 @@ export const swapService = {
         shift: swap.shift,
         requester: swap.requester,
         targetEmployee: swap.targetEmployee,
+        managerIds,
+        notifTitle,
+        notifMessage,
       };
     });
+
+    if (data.accept) {
+      await dispatchNotificationsToUsers(result.managerIds, {
+        eventType: "SWAP_ACCEPTED",
+        title: result.notifTitle,
+        message: result.notifMessage,
+        linkUrl: "/requests",
+        includeManagers: true,
+      });
+    } else {
+      await dispatchNotificationsToUsers([result.requester.userId], {
+        eventType: "SWAP_REVIEWED",
+        title: result.notifTitle,
+        message: result.notifMessage,
+        linkUrl: "/employee/requests",
+      });
+    }
+
+    invalidateDashboardCache();
 
     return {
       id: result.id,
@@ -309,6 +388,57 @@ export const swapService = {
       });
 
       if (data.approved) {
+        const lockOrder = [swap.requesterId, swap.targetEmployeeId].sort();
+        for (const empId of lockOrder) {
+          await lockEmployeeForScheduling(tx, empId);
+        }
+
+        const otherAssigned = await tx.shiftAssignment.findMany({
+          where: {
+            shiftId: swap.shiftId,
+            status: "ASSIGNED",
+            employeeId: { not: swap.requesterId },
+          },
+          select: { employeeId: true, positionId: true },
+        });
+
+        if (otherAssigned.some((a) => a.employeeId === swap.targetEmployeeId)) {
+          throw new AppValidationError("Nhân viên nhận ca đã được phân công trong ca này rồi");
+        }
+
+        const weekStart = formatIsoDateOnly(swap.shift.schedule.weekStart);
+        const contexts = await loadAssignmentContexts(tx, {
+          shift: {
+            id: swap.shift.id,
+            name: swap.shift.name,
+            templateId: swap.shift.templateId,
+            workDate: swap.shift.workDate,
+            startAt: swap.shift.startAt,
+            endAt: swap.shift.endAt,
+            breakMinutes: swap.shift.breakMinutes,
+          },
+          weekStart,
+          employeeIds: [swap.targetEmployeeId],
+        });
+
+        const targetCtx = contexts.get(swap.targetEmployeeId);
+        if (!targetCtx) {
+          throw new AppValidationError("Nhân viên nhận ca không tồn tại hoặc đã ngừng hoạt động");
+        }
+
+        const assignedPositionId = swap.targetEmployee.primaryPositionId;
+
+        const evaluation = evaluateAssignment({
+          ...targetCtx.base,
+          positionId: assignedPositionId,
+        });
+        const blocking = evaluation.conflicts.filter((c) => c.severity === "BLOCKING");
+        if (blocking.length > 0) {
+          throw new AppValidationError(
+            `Không thể duyệt đổi ca: ${blocking.map((c) => c.message).join("; ")}`,
+          );
+        }
+
         // Transactional reassignment:
         // Update old assignment to REMOVED or reassign
         if (swap.shiftAssignmentId) {
@@ -328,13 +458,14 @@ export const swapService = {
           },
           update: {
             status: "ASSIGNED",
+            positionId: assignedPositionId,
             assignedById: actor.userId,
             explanation: `Nhận ca từ ${swap.requester.fullName} (Đổi ca được duyệt)`,
           },
           create: {
             shiftId: swap.shiftId,
             employeeId: swap.targetEmployeeId,
-            positionId: swap.targetEmployee.primaryPositionId,
+            positionId: assignedPositionId,
             status: "ASSIGNED",
             assignedById: actor.userId,
             explanation: `Nhận ca từ ${swap.requester.fullName} (Đổi ca được duyệt)`,
@@ -401,28 +532,47 @@ export const swapService = {
       );
 
       return {
-        id: swap.id,
-        shiftId: swap.shiftId,
-        shiftName: swap.shift.name,
-        workDate: formatIsoDateOnly(swap.shift.workDate),
-        startTime: formatTimeVN(swap.shift.startAt),
-        endTime: formatTimeVN(swap.shift.endAt),
-        requesterId: swap.requesterId,
-        requesterName: swap.requester.fullName,
-        targetEmployeeId: swap.targetEmployeeId,
-        targetEmployeeName: swap.targetEmployee.fullName,
-        reason: swap.reason,
-        status: nextStatus,
-        targetRespondedAt: swap.targetRespondedAt?.toISOString() ?? null,
-        reviewedById: actor.userId,
-        reviewedByName: actor.fullName,
-        reviewedAt: now.toISOString(),
-        reviewNote: data.reviewNote ?? null,
-        createdAt: swap.createdAt.toISOString(),
+        requesterUserId: swap.requester.userId,
+        targetUserId: swap.targetEmployee.userId,
+        dto: {
+          id: swap.id,
+          shiftId: swap.shiftId,
+          shiftName: swap.shift.name,
+          workDate: formatIsoDateOnly(swap.shift.workDate),
+          startTime: formatTimeVN(swap.shift.startAt),
+          endTime: formatTimeVN(swap.shift.endAt),
+          requesterId: swap.requesterId,
+          requesterName: swap.requester.fullName,
+          targetEmployeeId: swap.targetEmployeeId,
+          targetEmployeeName: swap.targetEmployee.fullName,
+          reason: swap.reason,
+          status: nextStatus,
+          targetRespondedAt: swap.targetRespondedAt?.toISOString() ?? null,
+          reviewedById: actor.userId,
+          reviewedByName: actor.fullName,
+          reviewedAt: now.toISOString(),
+          reviewNote: data.reviewNote ?? null,
+          createdAt: swap.createdAt.toISOString(),
+        },
       };
     });
 
-    return result;
+    await dispatchNotificationsToUsers(
+      [result.requesterUserId, result.targetUserId],
+      {
+        eventType: "SWAP_REVIEWED",
+        title: data.approved
+          ? "Yêu cầu đổi ca ĐÃ ĐƯỢC DUYỆT"
+          : "Yêu cầu đổi ca KHÔNG ĐƯỢC DUYỆT",
+        message: data.approved
+          ? `Quản lý đã duyệt đổi ${result.dto.shiftName} (${formatDateVN(result.dto.workDate)}) từ ${result.dto.requesterName} sang ${result.dto.targetEmployeeName}.`
+          : `Quản lý từ chối yêu cầu đổi ca. Lý do: ${data.reviewNote || "Không duyệt"}`,
+        linkUrl: data.approved ? "/employee/schedule" : "/employee/requests",
+      },
+    );
+
+    invalidateDashboardCache();
+    return result.dto;
   },
 
   async listSwaps(

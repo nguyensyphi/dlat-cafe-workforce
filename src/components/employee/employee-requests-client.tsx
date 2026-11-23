@@ -55,6 +55,7 @@ export function EmployeeRequestsClient({
   const [leaveStart, setLeaveStart] = useState("");
   const [leaveEnd, setLeaveEnd] = useState("");
   const [leaveReason, setLeaveReason] = useState("");
+  const [isEmergency, setIsEmergency] = useState(false);
 
   // Swap Form Modal
   const [createSwapOpen, setCreateSwapOpen] = useState(false);
@@ -77,6 +78,7 @@ export function EmployeeRequestsClient({
           startAt: new Date(leaveStart).toISOString(),
           endAt: new Date(leaveEnd).toISOString(),
           reason: leaveReason,
+          isEmergency,
         }),
       });
       const json = await res.json();
@@ -87,7 +89,10 @@ export function EmployeeRequestsClient({
       setLeaves([json.data, ...leaves]);
       setCreateLeaveOpen(false);
       setLeaveReason("");
+      setIsEmergency(false);
       router.refresh();
+    } catch {
+      setErrorMessage("Lỗi kết nối máy chủ. Vui lòng kiểm tra mạng và thử lại.");
     } finally {
       setActionLoading(false);
     }
@@ -116,6 +121,8 @@ export function EmployeeRequestsClient({
       setCreateSwapOpen(false);
       setSwapReason("");
       router.refresh();
+    } catch {
+      setErrorMessage("Lỗi kết nối máy chủ. Vui lòng kiểm tra mạng và thử lại.");
     } finally {
       setActionLoading(false);
     }
@@ -123,6 +130,7 @@ export function EmployeeRequestsClient({
 
   async function handleRespondSwap(swapId: string, accept: boolean) {
     setActionLoading(true);
+    setErrorMessage(null);
     try {
       const res = await fetch(`/api/swaps/${swapId}/respond`, {
         method: "POST",
@@ -136,8 +144,10 @@ export function EmployeeRequestsClient({
         );
         router.refresh();
       } else {
-        alert(json.error?.message || "Không thể phản hồi yêu cầu đổi ca");
+        setErrorMessage(json.error?.message || "Không thể phản hồi yêu cầu đổi ca");
       }
+    } catch {
+      setErrorMessage("Lỗi kết nối máy chủ. Vui lòng kiểm tra mạng và thử lại.");
     } finally {
       setActionLoading(false);
     }
@@ -149,8 +159,8 @@ export function EmployeeRequestsClient({
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-xl font-bold tracking-tight text-slate-900">
             Đơn từ &amp; Đổi ca
           </h1>
@@ -163,7 +173,11 @@ export function EmployeeRequestsClient({
           <Button
             type="button"
             size="sm"
-            onClick={() => setCreateLeaveOpen(true)}
+            className="min-h-[44px] px-4"
+            onClick={() => {
+              setErrorMessage(null);
+              setCreateLeaveOpen(true);
+            }}
           >
             <Plus className="h-4 w-4" />
             <span>Tạo đơn xin nghỉ</span>
@@ -172,7 +186,11 @@ export function EmployeeRequestsClient({
           <Button
             type="button"
             size="sm"
-            onClick={() => setCreateSwapOpen(true)}
+            className="min-h-[44px] px-4"
+            onClick={() => {
+              setErrorMessage(null);
+              setCreateSwapOpen(true);
+            }}
             disabled={myShifts.length === 0}
           >
             <ArrowRightLeft className="h-4 w-4" />
@@ -185,8 +203,11 @@ export function EmployeeRequestsClient({
       <div className="flex items-center gap-2 border-b border-border">
         <button
           type="button"
-          onClick={() => setTab("LEAVES")}
-          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-2 ${
+          onClick={() => {
+            setErrorMessage(null);
+            setTab("LEAVES");
+          }}
+          className={`min-h-[44px] px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-2 ${
             tab === "LEAVES"
               ? "border-emerald-600 text-emerald-700"
               : "border-transparent text-slate-600 hover:text-slate-900"
@@ -198,8 +219,11 @@ export function EmployeeRequestsClient({
 
         <button
           type="button"
-          onClick={() => setTab("SWAPS")}
-          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-2 ${
+          onClick={() => {
+            setErrorMessage(null);
+            setTab("SWAPS");
+          }}
+          className={`min-h-[44px] px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-2 ${
             tab === "SWAPS"
               ? "border-emerald-600 text-emerald-700"
               : "border-transparent text-slate-600 hover:text-slate-900"
@@ -370,7 +394,7 @@ export function EmployeeRequestsClient({
 
       {/* MODAL 1: Create Leave Form */}
       <Dialog open={createLeaveOpen} onOpenChange={setCreateLeaveOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-[calc(100vw-1.5rem)] sm:max-w-md p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>Tạo đơn xin nghỉ phép</DialogTitle>
             <DialogDescription>
@@ -380,7 +404,10 @@ export function EmployeeRequestsClient({
 
           <form onSubmit={handleSubmitLeave} className="space-y-3 py-2">
             {errorMessage && (
-              <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+              <div
+                role="alert"
+                className="rounded border border-red-200 bg-red-50 p-2.5 text-xs text-red-700"
+              >
                 {errorMessage}
               </div>
             )}
@@ -391,6 +418,7 @@ export function EmployeeRequestsClient({
                 type="datetime-local"
                 value={leaveStart}
                 onChange={(e) => setLeaveStart(e.target.value)}
+                className="min-h-[44px]"
                 required
               />
             </div>
@@ -401,6 +429,7 @@ export function EmployeeRequestsClient({
                 type="datetime-local"
                 value={leaveEnd}
                 onChange={(e) => setLeaveEnd(e.target.value)}
+                className="min-h-[44px]"
                 required
               />
             </div>
@@ -411,19 +440,37 @@ export function EmployeeRequestsClient({
                 value={leaveReason}
                 onChange={(e) => setLeaveReason(e.target.value)}
                 placeholder="VD: Bận việc gia đình, đi khám bệnh..."
+                className="min-h-[44px]"
                 required
               />
             </div>
 
-            <div className="flex justify-end gap-2 pt-2">
+            <label
+              htmlFor="is-emergency-leave"
+              className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-900 cursor-pointer min-h-[44px]"
+            >
+              <input
+                id="is-emergency-leave"
+                type="checkbox"
+                checked={isEmergency}
+                onChange={(e) => setIsEmergency(e.target.checked)}
+                className="mt-0.5 h-5 w-5 rounded border-amber-300 text-amber-600 focus:ring-amber-500 shrink-0"
+              />
+              <span className="leading-snug font-medium">
+                Nghỉ đột xuất / Khẩn cấp (&lt; 4 tiếng trước ca)
+              </span>
+            </label>
+
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
               <Button
                 type="button"
                 variant="outline"
+                className="min-h-[44px]"
                 onClick={() => setCreateLeaveOpen(false)}
               >
                 Hủy
               </Button>
-              <Button type="submit" disabled={actionLoading}>
+              <Button type="submit" className="min-h-[44px]" disabled={actionLoading}>
                 Gửi đơn xin nghỉ
               </Button>
             </div>
@@ -433,7 +480,7 @@ export function EmployeeRequestsClient({
 
       {/* MODAL 2: Create Swap Form */}
       <Dialog open={createSwapOpen} onOpenChange={setCreateSwapOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-[calc(100vw-1.5rem)] sm:max-w-md p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>Tạo yêu cầu đổi ca làm việc</DialogTitle>
             <DialogDescription>
@@ -443,7 +490,10 @@ export function EmployeeRequestsClient({
 
           <form onSubmit={handleSubmitSwap} className="space-y-3 py-2">
             {errorMessage && (
-              <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+              <div
+                role="alert"
+                className="rounded border border-red-200 bg-red-50 p-2.5 text-xs text-red-700"
+              >
                 {errorMessage}
               </div>
             )}
@@ -451,7 +501,7 @@ export function EmployeeRequestsClient({
             <div className="space-y-1">
               <Label>Chọn ca làm của bạn cần đổi</Label>
               <select
-                className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm"
+                className="w-full min-h-[44px] rounded-md border border-input bg-card px-3 py-2 text-sm"
                 value={swapShiftId}
                 onChange={(e) => setSwapShiftId(e.target.value)}
                 required
@@ -467,7 +517,7 @@ export function EmployeeRequestsClient({
             <div className="space-y-1">
               <Label>Chọn đồng nghiệp nhận ca</Label>
               <select
-                className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm"
+                className="w-full min-h-[44px] rounded-md border border-input bg-card px-3 py-2 text-sm"
                 value={swapTargetId}
                 onChange={(e) => setSwapTargetId(e.target.value)}
                 required
@@ -486,18 +536,20 @@ export function EmployeeRequestsClient({
                 value={swapReason}
                 onChange={(e) => setSwapReason(e.target.value)}
                 placeholder="VD: Bận đột xuất, đã thỏa thuận trước..."
+                className="min-h-[44px]"
               />
             </div>
 
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
               <Button
                 type="button"
                 variant="outline"
+                className="min-h-[44px]"
                 onClick={() => setCreateSwapOpen(false)}
               >
                 Hủy
               </Button>
-              <Button type="submit" disabled={actionLoading}>
+              <Button type="submit" className="min-h-[44px]" disabled={actionLoading}>
                 Gửi lời mời đổi ca
               </Button>
             </div>

@@ -4,19 +4,16 @@ import React, { useEffect, useState } from "react";
 import {
   AlertTriangle,
   Zap,
-  UserCheck,
   Clock,
   Calendar,
   AlertCircle,
   CheckCircle2,
-  PhoneCall,
   ShieldCheck,
 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -94,8 +91,8 @@ export function EmergencyReplaceModal({
         } else {
           setError(json.error?.message || "Không thể tải danh sách ứng viên");
         }
-      } catch (err: any) {
-        setError(err.message || "Lỗi kết nối");
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Lỗi kết nối");
       } finally {
         setLoading(false);
       }
@@ -131,8 +128,8 @@ export function EmergencyReplaceModal({
 
       onOpenChange(false);
       onSuccess();
-    } catch (err: any) {
-      setError(err.message || "Có lỗi xảy ra khi thay ca");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Có lỗi xảy ra khi thay ca");
     } finally {
       setSubmitting(false);
     }

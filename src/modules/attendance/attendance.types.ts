@@ -35,6 +35,8 @@ export interface AttendanceDto {
   lateMinutes: number;
   earlyLeaveMinutes: number;
   overtimeMinutes: number;
+  overtimeStatus?: string;
+  isUnscheduled?: boolean;
   isMissingClockOut: boolean;
   status: AttendanceStatus;
   source: AttendanceSource;

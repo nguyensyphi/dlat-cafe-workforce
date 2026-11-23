@@ -7,9 +7,9 @@ import {
   ArrowLeft,
   ArrowRight,
   Calendar,
+  Copy,
   Download,
   History,
-  Image as ImageIcon,
   Lock,
   Plus,
   QrCode,
@@ -58,7 +58,7 @@ import type {
   WeekAvailabilityOverviewDto,
 } from "@/modules/availability/availability.types";
 import { formatVnd } from "@/lib/currency";
-import { SCHEDULE_STATUS_LABELS } from "@/modules/schedules/schedule.service";
+import { SCHEDULE_STATUS_LABELS } from "@/modules/schedules/schedule.types";
 import { ScheduleQrModal } from "./schedule-qr-modal";
 import { RegistrationProgressDrawer } from "./registration-progress-drawer";
 import { EmergencyReplaceModal } from "./emergency-replace-modal";
@@ -276,6 +276,35 @@ export function ScheduleManagementClient({
       }
       setSchedule(json.data);
       router.refresh();
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleCopyPreviousWeek() {
+    if (!schedule) return;
+    if (
+      !window.confirm(
+        "Bạn có chắc chắn muốn sao chép toàn bộ ca làm và phân công nhân viên từ tuần trước sang tuần này không?",
+      )
+    ) {
+      return;
+    }
+    setActionLoading(true);
+    setErrorMessage(null);
+    try {
+      const res = await fetch(`/api/schedules/${schedule.id}/copy-previous-week`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        setErrorMessage(json.error?.message || "Không thể sao chép lịch tuần trước");
+        return;
+      }
+      setSchedule(json.data);
+      router.refresh();
+    } catch {
+      setErrorMessage("Lỗi kết nối khi sao chép lịch tuần trước");
     } finally {
       setActionLoading(false);
     }
@@ -639,10 +668,10 @@ export function ScheduleManagementClient({
                   schedule.status === "PUBLISHED"
                     ? "default"
                     : schedule.status === "LOCKED"
-                    ? "warning"
-                    : schedule.status === "ARCHIVED"
-                    ? "secondary"
-                    : "outline"
+                      ? "warning"
+                      : schedule.status === "ARCHIVED"
+                        ? "secondary"
+                        : "outline"
                 }
                 className="text-xs font-semibold"
               >
@@ -658,17 +687,18 @@ export function ScheduleManagementClient({
 
         {/* Week Selector Bar */}
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center rounded-lg border border-border bg-white shadow-sm p-1">
+          <div className="flex items-center justify-between w-full sm:w-auto rounded-lg border border-border bg-white shadow-sm p-1">
             <Button
               type="button"
               variant="ghost"
               size="sm"
               onClick={() => changeWeek(-1)}
               title="Tuần trước"
+              className="min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0"
             >
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <span className="px-3 text-xs font-medium text-slate-700 min-w-[140px] text-center">
+            <span className="px-2 sm:px-3 text-xs font-medium text-slate-700 text-center">
               {formatDateVN(currentWeek)} –{" "}
               {formatDateVN(addDaysToDateString(currentWeek, 6))}
             </span>
@@ -678,19 +708,20 @@ export function ScheduleManagementClient({
               size="sm"
               onClick={() => changeWeek(1)}
               title="Tuần sau"
+              className="min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0"
             >
               <ArrowRight className="h-4 w-4" />
             </Button>
           </div>
 
           {/* QR Registration & Progress Buttons */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={() => setQrModalOpen(true)}
-              className="border-emerald-600 bg-emerald-50/70 text-emerald-800 hover:bg-emerald-100 font-semibold gap-1.5"
+              className="min-h-[44px] sm:min-h-0 flex-1 sm:flex-none border-emerald-600 bg-emerald-50/70 text-emerald-800 hover:bg-emerald-100 font-semibold gap-1.5"
             >
               <QrCode className="h-3.5 w-3.5 text-emerald-700" />
               <span>Mã QR Đăng Ký</span>
@@ -701,7 +732,7 @@ export function ScheduleManagementClient({
               variant="outline"
               size="sm"
               onClick={() => setProgressDrawerOpen(true)}
-              className="border-slate-300 text-slate-700 hover:bg-slate-100 font-medium gap-1.5"
+              className="min-h-[44px] sm:min-h-0 flex-1 sm:flex-none border-slate-300 text-slate-700 hover:bg-slate-100 font-medium gap-1.5"
               title="Xem danh sách nhân viên đã nộp / chưa nộp"
             >
               <Users className="h-3.5 w-3.5 text-slate-600" />
@@ -716,7 +747,7 @@ export function ScheduleManagementClient({
                 variant="outline"
                 size="sm"
                 onClick={handleExportScheduleImage}
-                className="border-slate-300 text-slate-700 hover:bg-slate-100 font-medium gap-1.5"
+                className="min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 border-slate-300 text-slate-700 hover:bg-slate-100 font-medium gap-1.5"
                 title="Tải ảnh toàn bộ lịch tuần để gửi vào nhóm Zalo nhân viên"
               >
                 <Download className="h-3.5 w-3.5 text-slate-600" />
@@ -726,15 +757,28 @@ export function ScheduleManagementClient({
           </div>
 
           {schedule ? (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               {schedule.status === "DRAFT" && (
                 <>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
+                    onClick={handleCopyPreviousWeek}
+                    disabled={actionLoading}
+                    title="Sao chép toàn bộ phân công của tuần trước sang tuần này"
+                    className="min-h-[44px] sm:min-h-0 flex-1 sm:flex-none border-blue-600 text-blue-700 hover:bg-blue-50"
+                  >
+                    <Copy className="h-3.5 w-3.5 text-blue-600" />
+                    <span>Sao chép tuần trước</span>
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
                     onClick={handlePreviewAutoSchedule}
-                    className="border-emerald-600 text-emerald-700 hover:bg-emerald-50"
+                    className="min-h-[44px] sm:min-h-0 flex-1 sm:flex-none border-emerald-600 text-emerald-700 hover:bg-emerald-50"
                   >
                     <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
                     <span>Tự động xếp ca</span>
@@ -745,6 +789,7 @@ export function ScheduleManagementClient({
                     size="sm"
                     onClick={() => handleStatusChange("PUBLISH")}
                     disabled={actionLoading}
+                    className="min-h-[44px] sm:min-h-0 flex-1 sm:flex-none"
                   >
                     <Send className="h-3.5 w-3.5" />
                     <span>Công bố lịch</span>
@@ -759,6 +804,7 @@ export function ScheduleManagementClient({
                   size="sm"
                   onClick={() => handleStatusChange("LOCK")}
                   disabled={actionLoading}
+                  className="min-h-[44px] sm:min-h-0 flex-1 sm:flex-none"
                 >
                   <Lock className="h-3.5 w-3.5" />
                   <span>Khóa lịch</span>
@@ -772,6 +818,7 @@ export function ScheduleManagementClient({
                   size="sm"
                   onClick={() => handleStatusChange("UNLOCK")}
                   disabled={actionLoading}
+                  className="min-h-[44px] sm:min-h-0 flex-1 sm:flex-none"
                 >
                   <Unlock className="h-3.5 w-3.5" />
                   <span>Mở khóa</span>
@@ -784,6 +831,7 @@ export function ScheduleManagementClient({
                 size="sm"
                 onClick={openRevisions}
                 title="Lịch sử phiên bản"
+                className="min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0"
               >
                 <History className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Lịch sử ({schedule.revisionCount})</span>
@@ -797,6 +845,7 @@ export function ScheduleManagementClient({
                 setGenerateFromTemplates(true);
                 setCreateScheduleOpen(true);
               }}
+              className="min-h-[44px] sm:min-h-0 w-full sm:w-auto"
             >
               <Plus className="h-4 w-4" />
               <span>Tạo lịch tuần</span>
@@ -835,11 +884,10 @@ export function ScheduleManagementClient({
           <Card className="py-2.5 px-4 shadow-none">
             <p className="text-xs text-muted-foreground">Ca còn thiếu người</p>
             <p
-              className={`text-xl font-bold mt-0.5 ${
-                schedule.totals.understaffedShiftCount > 0
-                  ? "text-amber-600"
-                  : "text-emerald-600"
-              }`}
+              className={`text-xl font-bold mt-0.5 ${schedule.totals.understaffedShiftCount > 0
+                ? "text-amber-600"
+                : "text-emerald-600"
+                }`}
             >
               {schedule.totals.understaffedShiftCount} ca
             </p>
@@ -854,13 +902,14 @@ export function ScheduleManagementClient({
       )}
 
       {/* View Mode Switcher */}
-      <div className="flex items-center justify-between gap-3 bg-slate-50 border border-border rounded-lg p-1.5">
-        <div className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-50 border border-border rounded-lg p-1.5">
+        <div className="flex flex-wrap items-center gap-1">
           <Button
             type="button"
             variant={viewMode === "WEEK" ? "default" : "ghost"}
             size="sm"
             onClick={() => setViewMode("WEEK")}
+            className="min-h-[44px] sm:min-h-0"
           >
             Theo Tuần
           </Button>
@@ -869,6 +918,7 @@ export function ScheduleManagementClient({
             variant={viewMode === "DAY" ? "default" : "ghost"}
             size="sm"
             onClick={() => setViewMode("DAY")}
+            className="min-h-[44px] sm:min-h-0"
           >
             Theo Ngày
           </Button>
@@ -877,6 +927,7 @@ export function ScheduleManagementClient({
             variant={viewMode === "EMPLOYEE" ? "default" : "ghost"}
             size="sm"
             onClick={() => setViewMode("EMPLOYEE")}
+            className="min-h-[44px] sm:min-h-0"
           >
             Theo Nhân viên
           </Button>
@@ -885,6 +936,7 @@ export function ScheduleManagementClient({
             variant={viewMode === "SHIFT" ? "default" : "ghost"}
             size="sm"
             onClick={() => setViewMode("SHIFT")}
+            className="min-h-[44px] sm:min-h-0"
           >
             Danh sách Ca
           </Button>
@@ -899,9 +951,10 @@ export function ScheduleManagementClient({
               setNewShiftDate(currentWeek);
               setAddShiftOpen(true);
             }}
+            className="min-h-[44px] sm:min-h-0 w-full sm:w-auto"
           >
             <Plus className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Thêm ca mới</span>
+            <span>Thêm ca mới</span>
           </Button>
         )}
       </div>
@@ -944,11 +997,10 @@ export function ScheduleManagementClient({
                 return (
                   <div
                     key={dateStr}
-                    className={`flex flex-col rounded-xl border bg-card p-3 space-y-3 min-h-[360px] ${
-                      isToday
-                        ? "border-emerald-500 shadow-sm ring-1 ring-emerald-500"
-                        : "border-border"
-                    }`}
+                    className={`flex flex-col rounded-xl border bg-card p-3 space-y-3 min-h-[360px] ${isToday
+                      ? "border-emerald-500 shadow-sm ring-1 ring-emerald-500"
+                      : "border-border"
+                      }`}
                   >
                     <div className="border-b border-border pb-2">
                       <div className="flex items-center justify-between">
@@ -1014,11 +1066,10 @@ export function ScheduleManagementClient({
                       key={dateStr}
                       type="button"
                       onClick={() => setSelectedDay(dateStr)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                        active
-                          ? "bg-emerald-600 text-white"
-                          : "bg-white border border-border text-slate-700 hover:bg-slate-50"
-                      }`}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${active
+                        ? "bg-emerald-600 text-white"
+                        : "bg-white border border-border text-slate-700 hover:bg-slate-50"
+                        }`}
                     >
                       <span>{DAY_LABELS[dayIdx]} ({dateStr.slice(8, 10)}/{dateStr.slice(5, 7)})</span>
                       <span className="ml-1.5 opacity-80">[{count} ca]</span>
@@ -1048,83 +1099,132 @@ export function ScheduleManagementClient({
             </div>
           )}
 
-          {/* VIEW 3: EMPLOYEE VIEW */}
+          {/* VIEW 3: EMPLOYEE MATRIX VIEW (KiotViet Model) */}
           {viewMode === "EMPLOYEE" && (
-            <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="rounded-xl border border-border bg-card overflow-hidden shadow-xs">
               <div className="p-4 border-b border-border bg-slate-50 flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-semibold text-slate-900">
-                    Phân bổ giờ công tuần theo từng nhân sự
+                    Ma trận Lịch làm việc theo Nhân sự (KiotViet Model)
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    Theo dõi định mức tuần và phát hiện nhân viên vượt/thiếu giờ
+                    Theo dõi trực quan ca làm và ngày nghỉ của từng nhân viên trong suốt 7 ngày trong tuần
                   </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs bg-white">
+                    {schedule.employeeSummaries.length} nhân sự
+                  </Badge>
                 </div>
               </div>
 
-              <div className="divide-y divide-border">
-                {schedule.employeeSummaries.map((emp) => {
-                  const hours = Math.round((emp.assignedMinutes / 60) * 10) / 10;
-                  const isOverLimit = hours > emp.maxWeeklyHours;
-                  const shiftsOfEmp = schedule.shifts.filter((s) =>
-                    s.assignments.some((a) => a.employeeId === emp.employeeId),
-                  );
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100/80 border-b border-border text-slate-700">
+                      <th className="p-3 font-semibold min-w-[180px] sticky left-0 bg-slate-100 z-10 border-r border-border/50">
+                        Nhân viên
+                      </th>
+                      {weekDates.map((dateStr) => {
+                        const d = new Date(`${dateStr}T00:00:00.000Z`);
+                        const dayName = DAY_LABELS[d.getUTCDay()] || "";
+                        const isWeekend = dayName.includes("Bảy") || dayName.includes("Chủ nhật");
+                        return (
+                          <th
+                            key={dateStr}
+                            className={`p-2.5 text-center font-semibold min-w-[110px] border-r border-border/40 last:border-r-0 ${isWeekend ? "bg-amber-50/70 text-amber-900" : ""
+                              }`}
+                          >
+                            <p>{dayName}</p>
+                            <p className="text-[11px] font-normal text-muted-foreground">
+                              {dateStr.slice(8, 10)}/{dateStr.slice(5, 7)}
+                            </p>
+                          </th>
+                        );
+                      })}
+                      <th className="p-3 text-right font-semibold min-w-[100px]">
+                        Tổng cộng
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {schedule.employeeSummaries.map((emp) => {
+                      const hours = Math.round((emp.assignedMinutes / 60) * 10) / 10;
+                      const isOverLimit = hours > emp.maxWeeklyHours;
 
-                  return (
-                    <div
-                      key={emp.employeeId}
-                      className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4"
-                    >
-                      <div className="min-w-[200px]">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-semibold text-slate-900">
-                            {emp.fullName}
-                          </p>
-                          <Badge variant="outline" className="text-[11px]">
-                            {emp.primaryPositionName}
-                          </Badge>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          Mã: {emp.employeeCode} • Mục tiêu: {emp.weeklyTargetHours}h • Tối đa: {emp.maxWeeklyHours}h
-                        </p>
-                      </div>
+                      return (
+                        <tr key={emp.employeeId} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="p-3 sticky left-0 bg-card z-10 border-r border-border/50">
+                            <div className="font-semibold text-slate-900">{emp.fullName}</div>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="text-[10px] text-muted-foreground">{emp.employeeCode}</span>
+                              <Badge variant="outline" className="text-[10px] py-0 px-1 font-normal">
+                                {emp.primaryPositionName}
+                              </Badge>
+                            </div>
+                          </td>
+                          {weekDates.map((dateStr) => {
+                            const dayShifts = schedule.shifts.filter(
+                              (s) =>
+                                s.workDate === dateStr &&
+                                s.assignments.some((a) => a.employeeId === emp.employeeId),
+                            );
 
-                      <div className="flex-1 flex flex-wrap gap-1.5">
-                        {shiftsOfEmp.length === 0 ? (
-                          <span className="text-xs text-muted-foreground italic">
-                            Chưa có ca làm nào trong tuần
-                          </span>
-                        ) : (
-                          shiftsOfEmp.map((s) => (
-                            <Badge
-                              key={s.id}
-                              variant="secondary"
-                              className="text-xs gap-1"
+                            return (
+                              <td
+                                key={dateStr}
+                                className="p-2 text-center align-middle border-r border-border/40 last:border-r-0"
+                              >
+                                {dayShifts.length === 0 ? (
+                                  <span className="text-[11px] text-slate-400 font-medium">Nghỉ</span>
+                                ) : (
+                                  <div className="flex flex-col gap-1 items-center justify-center">
+                                    {dayShifts.map((s) => {
+                                      const lowerName = s.name.toLowerCase();
+                                      const isCa1 = lowerName.includes("ca 1") || lowerName.includes("sáng") || s.startTime < "11:00";
+                                      const isCa2 = !isCa1 && (lowerName.includes("ca 2") || lowerName.includes("trưa") || s.startTime < "15:00");
+                                      const isCa3 = !isCa1 && !isCa2 && (lowerName.includes("ca 3") || lowerName.includes("chiều") || s.startTime < "19:00");
+                                      const badgeColor = isCa1
+                                        ? "bg-amber-100 text-amber-800 border-amber-300"
+                                        : isCa2
+                                          ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                                          : isCa3
+                                            ? "bg-sky-100 text-sky-800 border-sky-300"
+                                            : "bg-purple-100 text-purple-800 border-purple-300";
+                                      const shortLabel = isCa1 ? "Ca 1" : isCa2 ? "Ca 2" : isCa3 ? "Ca 3" : "Ca 4";
+
+                                      return (
+                                        <button
+                                          key={s.id}
+                                          type="button"
+                                          onClick={() => openAssignModal(s)}
+                                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold border shadow-2xs transition hover:opacity-80 ${badgeColor}`}
+                                          title={`${s.name} (${s.startTime}–${s.endTime}) - Bấm để xem chi tiết / điều chỉnh`}
+                                        >
+                                          <span>{shortLabel}</span>
+                                          <span className="text-[10px] opacity-75 font-normal">({s.startTime})</span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </td>
+                            );
+                          })}
+                          <td className="p-3 text-right">
+                            <div
+                              className={`font-bold text-sm ${isOverLimit ? "text-red-600" : "text-emerald-700"
+                                }`}
                             >
-                              <span>
-                                {s.workDate.slice(8, 10)}/{s.workDate.slice(5, 7)}:
-                              </span>
-                              <span>{s.name} ({s.startTime}–{s.endTime})</span>
-                            </Badge>
-                          ))
-                        )}
-                      </div>
-
-                      <div className="text-right min-w-[120px]">
-                        <p
-                          className={`text-base font-bold ${
-                            isOverLimit ? "text-red-600" : "text-emerald-700"
-                          }`}
-                        >
-                          {hours} giờ
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {emp.shiftCount} ca làm
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
+                              {hours}h
+                            </div>
+                            <div className="text-[11px] text-muted-foreground">{emp.shiftCount} ca</div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
@@ -1283,15 +1383,14 @@ export function ScheduleManagementClient({
                   return (
                     <div
                       key={cand.employeeId}
-                      className={`rounded-lg border p-3 flex items-start justify-between gap-3 ${
-                        cand.alreadyAssigned
-                          ? "bg-slate-50 border-slate-200 opacity-60"
-                          : blocking
+                      className={`rounded-lg border p-3 flex items-start justify-between gap-3 ${cand.alreadyAssigned
+                        ? "bg-slate-50 border-slate-200 opacity-60"
+                        : blocking
                           ? "bg-red-50/40 border-red-200"
                           : warnings.length > 0
-                          ? "bg-amber-50/40 border-amber-200"
-                          : "bg-white border-border"
-                      }`}
+                            ? "bg-amber-50/40 border-amber-200"
+                            : "bg-white border-border"
+                        }`}
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
@@ -1329,13 +1428,12 @@ export function ScheduleManagementClient({
                             {cand.evaluation.conflicts.map((c, i) => (
                               <p
                                 key={i}
-                                className={`text-[11px] flex items-center gap-1 ${
-                                  c.severity === "BLOCKING"
-                                    ? "text-red-700 font-medium"
-                                    : c.severity === "WARNING"
+                                className={`text-[11px] flex items-center gap-1 ${c.severity === "BLOCKING"
+                                  ? "text-red-700 font-medium"
+                                  : c.severity === "WARNING"
                                     ? "text-amber-800"
                                     : "text-slate-500"
-                                }`}
+                                  }`}
                               >
                                 {c.severity === "BLOCKING" && (
                                   <AlertTriangle className="h-3 w-3 shrink-0 text-red-600" />
@@ -1733,7 +1831,7 @@ function ShiftCardCompact({
   heatmapSlot?: AvailabilityHeatmapSlotDto;
   isEditable: boolean;
   onAssign: () => void;
-  onEmergencyReplace: (shift: ScheduleShiftDto, assignment: any) => void;
+  onEmergencyReplace: (shift: ScheduleShiftDto, assignment: ScheduleShiftDto["assignments"][number]) => void;
   onRemoveAssignment: (id: string) => void;
   onDeleteShift: () => void;
 }) {
@@ -1764,13 +1862,12 @@ function ShiftCardCompact({
       {/* AVAILABILITY HEATMAP BADGE */}
       {heatmapSlot && (
         <div
-          className={`flex items-center justify-between rounded px-2 py-0.5 text-[10px] font-semibold border ${
-            heatmapSlot.totalAvailable < shift.requiredStaff
-              ? "bg-rose-50 text-rose-700 border-rose-200"
-              : heatmapSlot.totalAvailable === shift.requiredStaff
+          className={`flex items-center justify-between rounded px-2 py-0.5 text-[10px] font-semibold border ${heatmapSlot.totalAvailable < shift.requiredStaff
+            ? "bg-rose-50 text-rose-700 border-rose-200"
+            : heatmapSlot.totalAvailable === shift.requiredStaff
               ? "bg-emerald-50 text-emerald-800 border-emerald-200"
               : "bg-emerald-50/90 text-emerald-900 border-emerald-300"
-          }`}
+            }`}
           title={
             heatmapSlot.employeeNames.length > 0
               ? `Nhân sự đăng ký: ${heatmapSlot.employeeNames.join(", ")} | Có ${standbyCount} nhân sự dự phòng nếu cần thay gấp`
@@ -1863,7 +1960,7 @@ function ShiftCardDetailed({
   shift: ScheduleShiftDto;
   isEditable: boolean;
   onAssign: () => void;
-  onEmergencyReplace: (shift: ScheduleShiftDto, assignment: any) => void;
+  onEmergencyReplace: (shift: ScheduleShiftDto, assignment: ScheduleShiftDto["assignments"][number]) => void;
   onRemoveAssignment: (id: string) => void;
   onDeleteShift: () => void;
 }) {

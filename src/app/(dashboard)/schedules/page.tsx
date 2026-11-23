@@ -5,6 +5,8 @@ import { shiftTemplateService } from "@/modules/shifts/shift-template.service";
 import { scheduleService } from "@/modules/schedules/schedule.service";
 import { ScheduleManagementClient } from "@/components/schedules/schedule-management-client";
 
+export const dynamic = "force-dynamic";
+
 export default async function SchedulesPage({
   searchParams,
 }: {

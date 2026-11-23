@@ -78,7 +78,10 @@ export interface EquipmentCheckItem {
 
 export interface CleanlinessCheckItem {
   area: string;
-  isClean: boolean;
+  isClean?: boolean;
+  isDone?: boolean;
+  isDueToday?: boolean;
+  scheduleLabel?: string;
   note?: string;
 }
 
@@ -93,6 +96,10 @@ export interface PendingTaskItem {
 
 export interface HandoverSubmissionInput {
   shiftId: string;
+  fallbackShift?: {
+    workDate?: string;
+    templateCode?: string;
+  };
   handoverEmployeeId: string;
   receivingEmployeeId?: string;
   reconciliation: CashReconciliationInput;
@@ -152,6 +159,24 @@ export function validateHandoverSubmission(
   // Kiểm tra thiết bị
   if (!input.equipment || input.equipment.length === 0) {
     errors.push("Cần kiểm tra trạng thái các thiết bị cốt lõi (Máy pha, Máy xay, POS, Tủ lạnh).");
+  }
+
+  // Kiểm tra checklist công việc ca: mục đến hạn hôm nay chưa hoàn thành bắt buộc có ghi chú >= 3 ký tự
+  if (Array.isArray(input.cleanliness) && input.cleanliness.length > 0) {
+    const missingReasonItems = input.cleanliness.filter((item) => {
+      const isDue = item.isDueToday !== false;
+      const done = item.isDone ?? item.isClean ?? false;
+      return isDue && !done && (!item.note || item.note.trim().length < 3);
+    });
+    if (missingReasonItems.length > 0) {
+      const labels = missingReasonItems
+        .slice(0, 3)
+        .map((m) => m.area)
+        .join(", ");
+      errors.push(
+        `Checklist còn mục chưa hoàn thành nhưng chưa ghi chú lý do (tối thiểu 3 ký tự): ${labels}${missingReasonItems.length > 3 ? ", ..." : ""}`,
+      );
+    }
   }
 
   return {

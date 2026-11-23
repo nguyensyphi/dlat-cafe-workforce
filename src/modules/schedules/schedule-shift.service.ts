@@ -6,6 +6,7 @@ import { AppNotFoundError, AppValidationError, assertPermission } from "@/lib/pe
 import { addDaysToDateString, buildShiftInterval } from "@/lib/shift-time";
 import { parseOrThrow } from "@/lib/validation";
 import { recordAuditLog } from "@/modules/audit/audit.service";
+import { invalidateDashboardCache } from "@/modules/dashboard/dashboard.service";
 import { evaluateAssignment } from "./conflict-detector";
 import { loadAssignmentContexts } from "./assignment-context";
 import {
@@ -59,7 +60,7 @@ export const scheduleShiftService = {
     assertPermission(actor.role, "schedules:manage");
     const data = parseOrThrow(createShiftSchema, rawInput, "Dữ liệu ca làm không hợp lệ");
 
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const schedule = await tx.schedule.findUnique({ where: { id: scheduleId } });
       if (!schedule) {
         throw new AppNotFoundError("Không tìm thấy lịch tuần");
@@ -117,13 +118,15 @@ export const scheduleShiftService = {
       );
       return { id: shift.id };
     });
+    invalidateDashboardCache();
+    return result;
   },
 
   async updateShift(actor: SessionUser, shiftId: string, rawInput: UpdateShiftInput) {
     assertPermission(actor.role, "schedules:manage");
     const data = parseOrThrow(updateShiftSchema, rawInput, "Dữ liệu ca làm không hợp lệ");
 
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const shift = await loadShiftForEdit(tx, shiftId);
       if (shift.status === "CANCELLED") {
         throw new AppValidationError("Ca đã bị hủy, không thể chỉnh sửa");
@@ -249,6 +252,8 @@ export const scheduleShiftService = {
       }
       return { id: shiftId };
     });
+    invalidateDashboardCache();
+    return result;
   },
 
   /**
@@ -258,7 +263,7 @@ export const scheduleShiftService = {
   async deleteShift(actor: SessionUser, shiftId: string) {
     assertPermission(actor.role, "schedules:manage");
 
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const shift = await loadShiftForEdit(tx, shiftId);
       const label = `${shift.name} ngày ${formatDateVN(shift.workDate)}`;
       const affected = shift.assignments.map((a) => a.employeeId);
@@ -298,6 +303,8 @@ export const scheduleShiftService = {
       });
       return { id: shiftId, mode: hardDelete ? "DELETED" : "CANCELLED" };
     });
+    invalidateDashboardCache();
+    return result;
   },
 };
 

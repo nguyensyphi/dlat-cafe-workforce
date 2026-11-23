@@ -22,6 +22,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { NotificationPreferencesCard } from "./notification-preferences-card";
+import { SecurityCredentialsCard } from "./security-credentials-card";
 
 const PROFICIENCY_LABELS: Record<SkillProficiency, string> = {
   BASIC: "Cơ bản",
@@ -33,16 +35,25 @@ export default async function EmployeeSelfProfilePage() {
   const actor = await requireServerSession("self:profile");
 
   if (!actor.employeeId) {
+    const selfNotif = await employeeService.getSelfNotificationSettings(actor);
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Tài khoản chưa liên kết hồ sơ nhân sự</CardTitle>
-          <CardDescription>
-            Vui lòng liên hệ Chủ quán để khởi tạo mã nhân viên cho tài khoản{" "}
-            {actor.email}.
-          </CardDescription>
-        </CardHeader>
-      </Card>
+      <div className="space-y-5">
+        <Card>
+          <CardHeader>
+            <CardTitle>Tài khoản chưa liên kết hồ sơ nhân sự</CardTitle>
+            <CardDescription>
+              Vui lòng liên hệ Chủ quán để khởi tạo mã nhân viên cho tài khoản{" "}
+              {actor.email}.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+        <SecurityCredentialsCard hasEmployeeProfile={false} />
+        <NotificationPreferencesCard
+          initialTelegramChatId={selfNotif.telegramChatId}
+          initialZaloUserId={selfNotif.zaloUserId}
+          initialPreferences={selfNotif.notificationPreferences}
+        />
+      </div>
     );
   }
 
@@ -217,6 +228,14 @@ export default async function EmployeeSelfProfilePage() {
           </CardContent>
         </Card>
       </div>
+
+      <SecurityCredentialsCard hasEmployeeProfile={true} />
+
+      <NotificationPreferencesCard
+        initialTelegramChatId={profile.telegramChatId}
+        initialZaloUserId={profile.zaloUserId}
+        initialPreferences={profile.notificationPreferences}
+      />
 
       <Card>
         <CardHeader>

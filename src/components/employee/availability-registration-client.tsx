@@ -130,8 +130,8 @@ export function AvailabilityRegistrationClient({
   return (
     <div className="space-y-5">
       {/* Week Selector */}
-      <div className="flex items-center justify-between gap-2">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
           <h1 className="text-xl font-bold tracking-tight text-slate-900">
             Đăng ký Lịch rảnh
           </h1>
@@ -145,6 +145,7 @@ export function AvailabilityRegistrationClient({
             type="button"
             variant="ghost"
             size="sm"
+            className="min-h-[44px] min-w-[44px]"
             onClick={() => changeWeek(-1)}
           >
             <ArrowLeft className="h-4 w-4" />
@@ -156,6 +157,7 @@ export function AvailabilityRegistrationClient({
             type="button"
             variant="ghost"
             size="sm"
+            className="min-h-[44px] min-w-[44px]"
             onClick={() => changeWeek(1)}
           >
             <ArrowRight className="h-4 w-4" />
@@ -258,7 +260,7 @@ export function AvailabilityRegistrationClient({
                         onClick={() =>
                           setSlotPref(slot.workDate, slot.templateId, "AVAILABLE")
                         }
-                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1 ${
+                        className={`min-h-[44px] flex-1 sm:flex-initial justify-center px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1 ${
                           currentPref === "AVAILABLE"
                             ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
                             : "bg-white border-border text-slate-600 hover:bg-slate-50"
@@ -273,7 +275,7 @@ export function AvailabilityRegistrationClient({
                         onClick={() =>
                           setSlotPref(slot.workDate, slot.templateId, "PREFERRED")
                         }
-                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1 ${
+                        className={`min-h-[44px] flex-1 sm:flex-initial justify-center px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1 ${
                           currentPref === "PREFERRED"
                             ? "bg-amber-600 text-white border-amber-600 shadow-sm"
                             : "bg-white border-border text-slate-600 hover:bg-slate-50"
@@ -288,7 +290,7 @@ export function AvailabilityRegistrationClient({
                         onClick={() =>
                           setSlotPref(slot.workDate, slot.templateId, "UNAVAILABLE")
                         }
-                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1 ${
+                        className={`min-h-[44px] flex-1 sm:flex-initial justify-center px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1 ${
                           currentPref === "UNAVAILABLE"
                             ? "bg-red-600 text-white border-red-600 shadow-sm"
                             : "bg-white border-border text-slate-600 hover:bg-slate-50"
@@ -307,12 +309,12 @@ export function AvailabilityRegistrationClient({
       </div>
 
       {/* Save Button Bar */}
-      <div className="sticky bottom-4 z-20 flex justify-end">
+      <div className="sticky bottom-20 md:bottom-4 z-20 flex justify-end pb-2">
         <Button
           type="button"
           onClick={handleSave}
           disabled={saving}
-          className="shadow-lg h-11 px-6 gap-2"
+          className="shadow-lg min-h-[44px] h-11 px-6 gap-2 w-full sm:w-auto"
         >
           <Save className="h-4 w-4" />
           <span>{saving ? "Đang lưu..." : "Lưu đăng ký lịch rảnh"}</span>

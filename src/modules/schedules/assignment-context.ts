@@ -112,7 +112,9 @@ export async function loadAssignmentContexts(
 
   const result = new Map<string, EmployeeContext>();
   for (const e of employees) {
-    const skillPositionIds = e.skills.map((s) => s.positionId);
+    const skillPositionIds = Array.from(
+      new Set([e.primaryPositionId, ...e.skills.map((s) => s.positionId)]),
+    );
     result.set(e.id, {
       employeeId: e.id,
       fullName: e.fullName,
@@ -126,6 +128,7 @@ export async function loadAssignmentContexts(
           status: e.status,
           maxWeeklyHours: Number(e.maxWeeklyHours),
           skillPositionIds,
+          fixedRestDay: e.fixedRestDay,
         },
         shift: {
           id: shift.id,

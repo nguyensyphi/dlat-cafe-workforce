@@ -121,23 +121,23 @@ export function EmployeeShell({
   ];
 
   return (
-    <div className="min-h-screen bg-background flex flex-col pb-16 sm:pb-0">
+    <div className="min-h-screen bg-background flex flex-col pb-[calc(4rem+env(safe-area-inset-bottom,0px))] md:pb-0">
       {targetHref && (
         <div className="fixed top-0 left-0 right-0 h-1 bg-emerald-600 z-50 overflow-hidden">
           <div className="h-full bg-emerald-300 animate-pulse w-full" />
         </div>
       )}
 
-      <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-border bg-card px-4 sm:px-6">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-white">
+      <header className="sticky top-0 z-20 flex h-16 items-center justify-between gap-2 border-b border-border bg-card px-3 sm:px-6">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white">
             <Coffee className="h-5 w-5" />
           </div>
-          <div>
-            <p className="text-sm font-semibold text-slate-900 leading-none">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-900 leading-none truncate">
               D&apos;lat Cafe — Cổng Nhân viên
             </p>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-xs text-muted-foreground mt-1 truncate">
               Xin chào, {user.fullName}
             </p>
           </div>
@@ -152,7 +152,7 @@ export function EmployeeShell({
               <Link
                 key={item.href}
                 href={item.href}
-                prefetch={true}
+                prefetch={false}
                 onClick={() => handleNavClick(item.href)}
                 className={cn(
                   "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
@@ -174,7 +174,7 @@ export function EmployeeShell({
           })}
         </nav>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
           <NotificationBell />
           {isManagerOrOwner && (
             <Link
@@ -185,19 +185,19 @@ export function EmployeeShell({
               <span>Quản lý quán</span>
             </Link>
           )}
-          <Badge variant="default" className="hidden xs:inline-flex">
+          <Badge variant="default" className="hidden sm:inline-flex">
             Nhân sự
           </Badge>
           <LogoutButton compact />
         </div>
       </header>
 
-      <main className="flex-1 p-4 sm:p-6 max-w-3xl w-full mx-auto">
+      <main className="flex-1 p-4 sm:p-6 max-w-3xl w-full mx-auto min-w-0">
         {children}
       </main>
 
       {/* Mobile Bottom Navigation: 5 items */}
-      <nav className="fixed bottom-0 inset-x-0 z-30 flex md:hidden items-center justify-around border-t border-border bg-card/95 backdrop-blur h-16 px-1 shadow-lg">
+      <nav className="fixed bottom-0 inset-x-0 z-30 flex md:hidden items-center justify-around border-t border-border bg-card/95 backdrop-blur min-h-[64px] pb-[env(safe-area-inset-bottom,0px)] px-1 shadow-lg">
         {mobileNavItems.map((item) => {
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
           const isPendingNav = targetHref === item.href;
@@ -206,10 +206,10 @@ export function EmployeeShell({
             <Link
               key={item.href}
               href={item.href}
-              prefetch={true}
+              prefetch={false}
               onClick={() => handleNavClick(item.href)}
               className={cn(
-                "flex flex-1 flex-col items-center justify-center gap-1 py-1.5 rounded-lg text-[11px] font-medium transition-colors",
+                "flex flex-1 min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-1 py-1.5 rounded-lg text-[11px] font-medium transition-colors",
                 active ? "text-emerald-700 font-semibold" : "text-slate-500 hover:text-slate-900",
               )}
             >

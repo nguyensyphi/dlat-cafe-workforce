@@ -3,6 +3,8 @@ import { todayDateStringVN } from "@/lib/date";
 import { handoverService } from "@/modules/handover/handover.service";
 import { HandoverManagementClient, type HandoverRecord } from "@/components/handover/handover-management-client";
 
+export const dynamic = "force-dynamic";
+
 export default async function HandoversPage() {
   const actor = await requireServerSession("attendance:manage");
   const todayStr = todayDateStringVN();

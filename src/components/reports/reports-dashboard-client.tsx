@@ -60,9 +60,9 @@ export function ReportsDashboardClient({ data }: { data: ReportsData }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <a href="/api/reports/export/attendance" download="bang-cham-cong.csv">
-            <Button variant="outline" size="sm" className="gap-2">
-              <Download className="h-4 w-4" />
+          <a href="/api/reports/export/attendance" download="bang-cham-cong.csv" className="w-full sm:w-auto">
+            <Button variant="outline" size="sm" className="min-h-[44px] w-full sm:w-auto gap-2">
+              <Download className="h-4 w-4 shrink-0" />
               <span>Xuất Báo cáo Chấm công (CSV)</span>
             </Button>
           </a>
@@ -88,7 +88,7 @@ export function ReportsDashboardClient({ data }: { data: ReportsData }) {
               Chưa có dữ liệu kỳ lương nào để lập biểu đồ. Hãy tạo và tính toán kỳ lương đầu tiên.
             </div>
           ) : (
-            <div className="h-72 w-full">
+            <div className="h-72 w-full overflow-hidden">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={data.laborCostTrends}
@@ -142,7 +142,7 @@ export function ReportsDashboardClient({ data }: { data: ReportsData }) {
                 Chưa có dữ liệu vị trí.
               </div>
             ) : (
-              <div className="h-64 w-full">
+              <div className="h-64 w-full overflow-hidden">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
@@ -188,7 +188,7 @@ export function ReportsDashboardClient({ data }: { data: ReportsData }) {
                 Chưa có dữ liệu chấm công trong 30 ngày qua.
               </div>
             ) : (
-              <div className="h-64 w-full">
+              <div className="h-64 w-full overflow-hidden">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie

@@ -1,7 +1,10 @@
 import { requireServerSession } from "@/lib/auth";
 import { todayDateStringVN } from "@/lib/date";
 import { attendanceService } from "@/modules/attendance/attendance.service";
+import { attendanceMonitorService } from "@/modules/attendance/attendance-monitor.service";
 import { AttendanceManagementClient } from "@/components/attendance/attendance-management-client";
+
+export const dynamic = "force-dynamic";
 
 export default async function AttendancePage({
   searchParams,
@@ -12,14 +15,20 @@ export default async function AttendancePage({
   const params = await searchParams;
   const selectedDate = params.date || todayDateStringVN();
 
-  const attendances = await attendanceService.listAttendances(actor, {
-    workDate: selectedDate,
-  });
+  const [attendances, initialAlerts] = await Promise.all([
+    attendanceService.listAttendances(actor, {
+      workDate: selectedDate,
+    }),
+    attendanceMonitorService.getActiveAttendanceAlerts({
+      workDate: selectedDate,
+    }),
+  ]);
 
   return (
     <AttendanceManagementClient
       initialAttendances={attendances}
       initialDate={selectedDate}
+      initialAlerts={initialAlerts}
     />
   );
 }

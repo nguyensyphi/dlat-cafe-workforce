@@ -2,13 +2,11 @@ import * as XLSX from "xlsx";
 import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/auth";
 import {
-  AppForbiddenError,
   AppNotFoundError,
   AppValidationError,
   assertPermission,
 } from "@/lib/permissions";
 import { recordAuditLog } from "@/modules/audit/audit.service";
-import { calculateEmployeePayrollItem } from "./payroll-calculator";
 
 export interface RawExcelRow {
   "Mã NV"?: string;
@@ -18,13 +16,13 @@ export interface RawExcelRow {
   "Thưởng (VNĐ)"?: number | string;
   "Khấu trừ/Tạm ứng (VNĐ)"?: number | string;
   "Ghi chú"?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 /**
  * Extracts a cell value using candidate key aliases, case-insensitively and whitespace-trimmed.
  */
-function extractCellValue(row: Record<string, any>, candidateKeys: string[]): any {
+function extractCellValue(row: Record<string, unknown>, candidateKeys: string[]): unknown {
   if (!row || typeof row !== "object") return undefined;
   const rowKeys = Object.keys(row);
   for (const candidate of candidateKeys) {
@@ -52,7 +50,7 @@ export function parsePayrollExcelRows(rawRows: RawExcelRow[]) {
   }>();
 
   for (let i = 0; i < rawRows.length; i++) {
-    const row = rawRows[i] as Record<string, any>;
+    const row = rawRows[i] as Record<string, unknown>;
     const rawCode = extractCellValue(row, [
       "Mã NV",
       "Mã nhân viên",
@@ -296,7 +294,7 @@ export class PayrollExcelService {
     }
 
     const ws = wb.Sheets[firstSheetName];
-    const rawRows = XLSX.utils.sheet_to_json<any>(ws!);
+    const rawRows = XLSX.utils.sheet_to_json<RawExcelRow>(ws!);
 
     if (rawRows.length === 0) {
       throw new AppValidationError("Không tìm thấy dòng dữ liệu nào trong file Excel");

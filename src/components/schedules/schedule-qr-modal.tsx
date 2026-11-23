@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import {
   QrCode,
@@ -8,21 +8,17 @@ import {
   Check,
   Download,
   ExternalLink,
-  Coffee,
   Calendar,
-  Sparkles,
   Smartphone,
 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 
 interface ScheduleQrModalProps {
   open: boolean;
@@ -40,7 +36,6 @@ export function ScheduleQrModal({
   const [qrDataUrl, setQrDataUrl] = useState<string>("");
   const [copied, setCopied] = useState<boolean>(false);
   const [customHost, setCustomHost] = useState<string>("");
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Determine base host (LAN IP or current origin)
   useEffect(() => {
@@ -199,6 +194,7 @@ export function ScheduleQrModal({
         <div className="p-6 flex flex-col items-center">
           <div className="rounded-2xl border-4 border-emerald-100 bg-white p-3 shadow-md">
             {qrDataUrl ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
               <img
                 src={qrDataUrl}
                 alt={`Mã QR Đăng ký lịch tuần ${weekStart}`}

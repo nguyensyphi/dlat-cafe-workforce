@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { apiSuccess, handleApiError } from "@/lib/api-response";
-import { requireServerSession } from "@/lib/auth";
+import { requireApiSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { AppNotFoundError } from "@/lib/permissions";
 
@@ -9,7 +9,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const actor = await requireServerSession("self:attendance");
+    await requireApiSession("self:attendance");
     const { id } = await params;
 
     const handover = await prisma.shiftHandover.findUnique({
