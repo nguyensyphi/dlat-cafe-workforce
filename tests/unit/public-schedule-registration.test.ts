@@ -3,6 +3,7 @@ import {
   validateEmployeePin,
   isRegistrationOpen,
   validateRegistrationPayload,
+  getDefaultRegistrationDeadline,
 } from "../../src/modules/availability/public-registration.service";
 
 describe("Public Schedule Registration Logic", () => {
@@ -56,5 +57,13 @@ describe("Public Schedule Registration Logic", () => {
     });
     expect(shortPin.isValid).toBe(false);
     expect(shortPin.error).toContain("4 chữ số");
+  });
+
+  it("TC_REG_04: sets default registration deadline to Saturday 19:00 VN before Monday weekStart", () => {
+    const deadline = getDefaultRegistrationDeadline("2026-11-23");
+    // 2026-11-21 19:00:00+07:00 == 2026-11-21T12:00:00.000Z
+    expect(deadline.toISOString()).toBe("2026-11-21T12:00:00.000Z");
+    expect(isRegistrationOpen(deadline, new Date("2026-11-21T11:59:59.000Z"))).toBe(true);
+    expect(isRegistrationOpen(deadline, new Date("2026-11-21T12:00:01.000Z"))).toBe(false);
   });
 });

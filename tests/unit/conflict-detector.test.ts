@@ -150,6 +150,57 @@ describe("Assignment conflict detector", () => {
     ]);
   });
 
+  it("allows same-day split shifts (Ca 1 07:00-11:00 + Ca 4 19:00-23:00) without rest warning, but warns on fixedRestDay", () => {
+    const ca1 = buildShiftInterval("2026-11-09", "07:00", "11:00");
+    const ca4 = buildShiftInterval("2026-11-09", "19:00", "23:00");
+
+    // 2026-11-09 is Monday (day 1)
+    const splitResult = evaluateAssignment(
+      baseInput({
+        shift: {
+          id: "shift-ca4",
+          templateId: "tpl-ca4",
+          startAt: ca4.startAt,
+          endAt: ca4.endAt,
+          breakMinutes: 0,
+        },
+        availability: [
+          {
+            templateId: "tpl-ca4",
+            startAt: ca4.startAt,
+            endAt: ca4.endAt,
+            preference: "AVAILABLE",
+          },
+        ],
+        otherAssignments: [
+          {
+            shiftId: "shift-ca1",
+            shiftName: "Ca 1 (09/11)",
+            startAt: ca1.startAt,
+            endAt: ca1.endAt,
+            breakMinutes: 0,
+            inSameWeek: true,
+          },
+        ],
+      }),
+    );
+    expect(splitResult.conflicts.map((c) => c.code)).not.toContain("INSUFFICIENT_REST");
+
+    // Now set fixedRestDay = 1 (Monday) -> should warn UNAVAILABLE
+    const restDayResult = evaluateAssignment(
+      baseInput({
+        employee: {
+          id: "emp-1",
+          status: "ACTIVE",
+          maxWeeklyHours: 48,
+          skillPositionIds: [BARISTA],
+          fixedRestDay: 1,
+        },
+      }),
+    );
+    expect(restDayResult.conflicts.map((c) => c.code)).toContain("UNAVAILABLE");
+  });
+
   it("does not count assignments outside the week toward weekly hours", () => {
     const prevWeek = buildShiftInterval("2026-11-08", "06:00", "12:00");
     const result = evaluateAssignment(

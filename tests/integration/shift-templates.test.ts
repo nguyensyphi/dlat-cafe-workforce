@@ -39,22 +39,22 @@ describe("Shift Template Configuration Integration Tests", () => {
     };
   });
 
-  it("loads the 3 database-configured default shift templates (Morning, Afternoon, Evening) with position requirements", async () => {
+  it("loads the 4 database-configured default shift templates (Ca 1–4) with 240m each", async () => {
     const templates = await shiftTemplateService.listShiftTemplates(
       ownerActor,
       { includeInactive: false },
     );
-    expect(templates.length).toBeGreaterThanOrEqual(3);
+    expect(templates.length).toBeGreaterThanOrEqual(4);
     const codes = templates.map((t) => t.code);
-    expect(codes).toContain("CA_SANG");
-    expect(codes).toContain("CA_CHIEU");
-    expect(codes).toContain("CA_TOI");
+    expect(codes).toContain("CA_1");
+    expect(codes).toContain("CA_2");
+    expect(codes).toContain("CA_3");
+    expect(codes).toContain("CA_4");
 
-    const morning = templates.find((t) => t.code === "CA_SANG")!;
-    expect(morning.startTime).toBe("06:00");
-    expect(morning.endTime).toBe("12:00");
-    expect(morning.netDurationMinutes).toBe(360);
-    expect(morning.positionRequirements.length).toBeGreaterThan(0);
+    const ca1 = templates.find((t) => t.code === "CA_1")!;
+    expect(ca1.startTime).toBe("07:00");
+    expect(ca1.endTime).toBe("11:00");
+    expect(ca1.netDurationMinutes).toBe(240);
   });
 
   it("rejects invalid shift template where minStaff > maxStaff or startTime === endTime", async () => {
