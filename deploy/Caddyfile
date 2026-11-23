@@ -1,0 +1,18 @@
+# Caddyfile for D'Lat Cafe Workforce (Profile: vps)
+# Automatically provisions & renews Let's Encrypt HTTPS certificates for {$APP_DOMAIN}
+
+{$APP_DOMAIN:localhost} {
+	encode zstd gzip
+
+	reverse_proxy app:3000 {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+}

@@ -53,13 +53,19 @@ Mở trình duyệt tại: `http://localhost:3000`
 
 ---
 
-### Cách B: Chạy Production với Docker Compose
+### Cách B: Chạy Production 24/7 với Docker Compose (HTTPS + Auto-Backup + Cron)
+
+Hỗ trợ sẵn 2 chế độ triển khai HTTPS tự động (xem hướng dẫn chi tiết từng bước tại [docs/PRODUCTION_DEPLOYMENT.md](docs/PRODUCTION_DEPLOYMENT.md)):
 
 ```bash
-# Khởi chạy toàn bộ hệ thống gồm PostgreSQL 17 và Ứng dụng Next.js Standalone
-docker compose -f docker-compose.production.yml up -d --build
+# Chế độ 1 (Máy tính / Mini-PC tại quán — Cloudflare Tunnel, không cần mở port modem):
+docker compose -f docker-compose.production.yml --profile tunnel up -d --build
+
+# Chế độ 2 (Cloud VPS có IP công khai — Caddy tự cấp SSL Let's Encrypt):
+docker compose -f docker-compose.production.yml --profile vps up -d --build
 ```
-Ứng dụng sẽ tự động biên dịch multi-stage Dockerfile tối ưu và chạy tại: `http://localhost:3000`
+- **Sao lưu DB tự động:** Sidecar `db-backup` tự động dump nén `.sql.gz` lúc `03:00` sáng hàng ngày vào `./backups/` (giữ 14 bản gần nhất).
+- **Sao lưu / Khôi phục 1 lệnh:** `.\scripts\backup-db.ps1` / `.\scripts\restore-db.ps1` (Windows) hoặc `./scripts/backup-db.sh` / `./scripts/restore-db.sh` (Linux/macOS).
 
 ---
 
